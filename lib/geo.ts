@@ -54,6 +54,7 @@ export function hexFC(
           h3: cell.h3,
           district: cell.district,
           access,
+          worst: cell.worst.family,
           color: accessColor(access),
         },
       };

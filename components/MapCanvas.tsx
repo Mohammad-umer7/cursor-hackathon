@@ -272,11 +272,31 @@ const MapCanvas = forwardRef<MapHandle, MapCanvasProps>(function MapCanvas(
         const f = e.features?.[0];
         if (f) onCellClick(String(f.properties?.district));
       });
-      map.on("mouseenter", "hex-fill", () => {
+      const hexPopup = new maplibregl.Popup({
+        closeButton: false,
+        closeOnClick: false,
+        className: "amenity-tip",
+        offset: 6,
+      });
+      const catLabel = (key: string) =>
+        CATEGORIES.find((c) => c.key === key)?.label ?? key;
+
+      map.on("mousemove", "hex-fill", (e) => {
         map.getCanvas().style.cursor = "pointer";
+        const f = e.features?.[0];
+        if (!f) return;
+        const p: any = f.properties || {};
+        const acc = Math.round(Number(p.access ?? 0));
+        hexPopup
+          .setLngLat(e.lngLat)
+          .setHTML(
+            `<div style="font-weight:600">${p.district || "Area"}</div><div style="opacity:.7">Walk access: ${acc}/100</div><div style="opacity:.55">Weakest: ${catLabel(String(p.worst || ""))}</div>`
+          )
+          .addTo(map);
       });
       map.on("mouseleave", "hex-fill", () => {
         map.getCanvas().style.cursor = "";
+        hexPopup.remove();
       });
 
       const popup = new maplibregl.Popup({

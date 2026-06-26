@@ -9,6 +9,7 @@ import {
   MapPin,
   Check,
   FileText,
+  Settings2,
 } from "lucide-react";
 import {
   CATEGORIES,
@@ -279,8 +280,11 @@ export default function Inspector({
                   )}
 
                   <div>
-                    <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/45">
+                    <div className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-white/45">
                       Why this parcel wins
+                      <span className="inline-flex items-center gap-0.5 rounded bg-white/8 px-1 py-0.5 text-[8px] font-medium normal-case tracking-normal text-white/50">
+                        <Settings2 size={8} /> computed
+                      </span>
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       <ScoreChip label="Buildability" value="Pass" ok />
@@ -315,9 +319,14 @@ export default function Inspector({
                   </div>
 
                   {streamText && (
-                    <p className="text-[11px] leading-relaxed text-white/60">
-                      {streamText}
-                    </p>
+                    <div>
+                      <div className="mb-1 inline-flex items-center gap-0.5 rounded bg-accent/15 px-1 py-0.5 text-[8px] font-medium text-accent">
+                        <Sparkles size={8} /> AI rationale
+                      </div>
+                      <p className="text-[11px] leading-relaxed text-white/60">
+                        {streamText}
+                      </p>
+                    </div>
                   )}
 
                   {priorityMatch && (

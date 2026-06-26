@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Copy, X } from "lucide-react";
+import { Copy, X, Settings2, Sparkles } from "lucide-react";
 import { useCallback, useState } from "react";
 import { CATEGORIES, PERSONAS, type CategoryKey, type PersonaKey } from "@/lib/engine";
 import type { Gap, SimResult } from "@/lib/client";
@@ -26,6 +26,20 @@ function humanize(s: string): string {
   if (!s) return "—";
   const spaced = s.replace(/_/g, " ").trim();
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+function Tag({ computed }: { computed: boolean }) {
+  return (
+    <span
+      className={`ml-1.5 inline-flex items-center gap-0.5 rounded px-1 py-0.5 align-middle text-[8px] font-medium ${
+        computed ? "bg-white/8 text-white/55" : "bg-accent/15 text-accent"
+      }`}
+      title={computed ? "Computed by the engine" : "AI-written"}
+    >
+      {computed ? <Settings2 size={8} /> : <Sparkles size={8} />}
+      {computed ? "computed" : "AI"}
+    </span>
+  );
 }
 
 function buildBriefText(props: SitingBriefProps): string {
@@ -145,6 +159,7 @@ export default function SitingBrief(props: SitingBriefProps) {
           <section>
             <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/45">
               Problem
+              <Tag computed />
             </h3>
             <ul className="space-y-0.5">
               <li>
@@ -169,6 +184,7 @@ export default function SitingBrief(props: SitingBriefProps) {
           <section>
             <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/45">
               Recommended parcel
+              <Tag computed />
             </h3>
             {pick ? (
               <ul className="space-y-0.5">
@@ -207,6 +223,7 @@ export default function SitingBrief(props: SitingBriefProps) {
           <section>
             <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/45">
               Why Reach selected this
+              <Tag computed={false} />
             </h3>
             <p>{aiResult.why_better_than_baseline}</p>
             {pick && (
@@ -220,6 +237,7 @@ export default function SitingBrief(props: SitingBriefProps) {
           <section>
             <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/45">
               Estimated impact
+              <Tag computed />
             </h3>
             {simResult ? (
               <ul className="space-y-0.5">
