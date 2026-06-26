@@ -113,7 +113,17 @@ const MapCanvas = forwardRef<MapHandle, MapCanvasProps>(function MapCanvas(
         source: "hexes",
         paint: {
           "fill-color": ["get", "color"],
-          "fill-opacity": 0.5,
+          // Overview layer: full opacity when zoomed out, fades out at street level
+          // so sparse/empty hexes never look broken; amenity dots take over.
+          "fill-opacity": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            13,
+            0.5,
+            15,
+            0,
+          ],
         },
       });
       map.addLayer({
@@ -123,7 +133,15 @@ const MapCanvas = forwardRef<MapHandle, MapCanvasProps>(function MapCanvas(
         paint: {
           "line-color": "#05080d",
           "line-width": 0.5,
-          "line-opacity": 0.35,
+          "line-opacity": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            13,
+            0.35,
+            15,
+            0,
+          ],
         },
       });
 

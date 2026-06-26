@@ -29,6 +29,8 @@ export interface DistrictSummary {
   profile: string;
   population: number;
   demand: number;
+  residentExperience: number; // avg resident_experience_score 0–100
+  mobility: number; // avg mobility_score 0–100
   opportunity: string;
   access: Record<PersonaKey, number>;
   worst: Record<PersonaKey, CategoryKey>;

@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { X, Play, RotateCcw, Sparkles, MapPin } from "lucide-react";
+import { X, Play, RotateCcw, Sparkles, MapPin, Check } from "lucide-react";
 import { CATEGORIES, PERSONAS, type CategoryKey, type PersonaKey } from "@/lib/engine";
 import type { Gap, SimResult } from "@/lib/client";
 import type { RecommendResult, Parcel } from "@/lib/types";
@@ -78,6 +78,44 @@ function confidenceColor(c: string): string {
   return "#ef4444";
 }
 
+/** "expand_school_capacity" -> "Expand school capacity". */
+function humanizeOpportunity(s: string): string {
+  if (!s) return "";
+  const spaced = s.replace(/_/g, " ").trim();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+/** Map a dataset opportunity string to one of the six categories, or null. */
+function opportunityToCategory(s: string): CategoryKey | null {
+  const o = (s || "").toLowerCase();
+  if (!o) return null;
+  if (o.includes("school") || o.includes("educat")) return "education";
+  if (o.includes("clinic") || o.includes("health") || o.includes("medical"))
+    return "healthcare";
+  if (
+    o.includes("retail") ||
+    o.includes("grocery") ||
+    o.includes("shop") ||
+    o.includes("mall") ||
+    o.includes("market")
+  )
+    return "grocery";
+  if (o.includes("park") || o.includes("green") || o.includes("recreation"))
+    return "parks";
+  if (
+    o.includes("transit") ||
+    o.includes("mobility") ||
+    o.includes("transport") ||
+    o.includes("bus") ||
+    o.includes("metro") ||
+    o.includes("cycle")
+  )
+    return "transit";
+  if (o.includes("service") || o.includes("community") || o.includes("bank"))
+    return "services";
+  return null;
+}
+
 export default function Inspector({
   gap,
   persona,
@@ -102,6 +140,10 @@ export default function Inspector({
   const pick = aiResult
     ? candidates.find((p) => p.id === aiResult.recommended_parcel_id)
     : null;
+
+  const flaggedCategory = opportunityToCategory(gap.opportunity);
+  const crossCheckMatches =
+    flaggedCategory !== null && flaggedCategory === gap.worst;
 
   return (
     <motion.div
@@ -151,6 +193,36 @@ export default function Inspector({
           this is a priority {categoryLabel.toLowerCase()} desert for the{" "}
           {personaLabel} persona.
         </p>
+
+        {/* Community signals */}
+        <div className="grid grid-cols-3 gap-2">
+          <div className="rounded-lg bg-white/5 p-2 ring-1 ring-white/8">
+            <div className="tnum text-[14px] font-bold text-white">
+              {gap.residentExperience}
+              <span className="text-[9px] font-normal text-white/35">/100</span>
+            </div>
+            <div className="text-[9px] leading-tight text-white/45">
+              Resident experience
+            </div>
+          </div>
+          <div className="rounded-lg bg-white/5 p-2 ring-1 ring-white/8">
+            <div className="tnum text-[14px] font-bold text-white">
+              {gap.mobility}
+              <span className="text-[9px] font-normal text-white/35">/100</span>
+            </div>
+            <div className="text-[9px] leading-tight text-white/45">
+              Mobility
+            </div>
+          </div>
+          <div className="rounded-lg bg-white/5 p-2 ring-1 ring-white/8">
+            <div className="truncate text-[11px] font-semibold leading-tight text-white">
+              {humanizeOpportunity(gap.opportunity) || "—"}
+            </div>
+            <div className="text-[9px] leading-tight text-white/45">
+              Flagged priority
+            </div>
+          </div>
+        </div>
 
         {/* Baseline vs Reach AI */}
         <div>
@@ -255,6 +327,19 @@ export default function Inspector({
                 <p className="text-[12px] leading-relaxed text-white/70">
                   {streamText || aiResult.rationale}
                 </p>
+                {/* cross-check against the dataset's own flagged priority */}
+                {crossCheckMatches ? (
+                  <div className="mt-1.5 flex items-center gap-1 text-[10.5px] font-medium text-gap-good">
+                    <Check size={12} />
+                    Matches the community&apos;s own flagged priority.
+                  </div>
+                ) : (
+                  <p className="mt-1.5 text-[10px] leading-snug text-white/40">
+                    Reach is targeting {categoryLabel}; the dataset&apos;s
+                    flagged priority is{" "}
+                    {humanizeOpportunity(gap.opportunity) || "not specified"}.
+                  </p>
+                )}
               </div>
 
               {/* why better */}
@@ -268,9 +353,15 @@ export default function Inspector({
               </div>
 
               {aiSource && aiSource !== "groq" && (
-                <p className="text-[10px] italic text-white/35">
-                  (Groq key not set — deterministic fallback siting shown.)
-                </p>
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-white/8 px-2 py-0.5 text-[9px] font-medium uppercase tracking-wide text-white/50 ring-1 ring-white/12">
+                    <span className="h-1.5 w-1.5 rounded-full bg-white/40" />
+                    Demo mode
+                  </span>
+                  <span className="text-[9.5px] text-white/35">
+                    Deterministic siting — add a key for live AI rationale.
+                  </span>
+                </div>
               )}
             </div>
           )

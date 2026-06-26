@@ -1,0 +1,53 @@
+---
+description: Project rules and guardrails for Reach (Abu Dhabi access + AI siting copilot). Read before editing.
+alwaysApply: true
+---
+
+# Reach — project rules
+
+Reach is an Abu Dhabi service-access + AI siting copilot. It maps where residents
+can't reach essential services on foot, surfaces the worst "access deserts," and
+uses an LLM to recommend a real, buildable parcel to fix a gap — then simulates
+that placement live.
+
+## Stack
+- Next.js 14 (App Router) + React 18 + TypeScript (strict)
+- Tailwind CSS 3.4 (dark "glass" aesthetic — translucent panels, `.glass`/`.glass-strong`)
+- maplibre-gl 4.5 (CARTO dark-matter basemap, no token)
+- h3-js 4.1 (res-8 hex binning)
+- framer-motion 11, lucide-react
+- openai 4.55 SDK pointed at Groq (`llama-3.3-70b-versatile`), server-side only.
+  The app works fully WITHOUT a key via deterministic fallback siting.
+
+## Data files (`data/*.csv`, auto-downloaded by the build script)
+- `osm_amenities.csv` — real OpenStreetMap POIs (`category, subtype, name, latitude, longitude, district`).
+- `sample_listings.csv` — population proxy (listing density), binned into H3 cells.
+- `sample_communities.csv` — `population_estimate, service_demand_index, mobility_score, resident_experience_score, optimization_opportunity` per district.
+- `sample_parcels.csv` — buildable land (`zone, land_use, parcel_size_sqm, current_status, infrastructure_score, development_potential_score, ...`).
+- `districts.csv` — district centroids + metadata.
+
+`scripts/build-data.ts` parses these and writes minified `public/data/reach.json`
+(consumed by the browser). Amenities are REAL; community/listing/parcel figures are
+ILLUSTRATIVE synthetic data.
+
+## Core flow
+1. **Gap engine** (`lib/engine.ts` pure math + `lib/client.ts` analysis): per-cell
+   nearest-amenity distance → persona-weighted access score → ranked access gaps.
+2. **A/B baseline-vs-AI**: a naive nearest-distance "Baseline" point (red **A** pin)
+   vs. the AI's real-parcel "Reach AI" pick (green **B** pin), joined by a dashed
+   connector. Lives in `components/MapCanvas.tsx` + `components/Inspector.tsx`.
+3. **Simulate** (`simulatePlacement` in `lib/client.ts`): instantly recomputes access
+   if the recommended facility is built, tweens affected hexes greener, shows impact.
+
+## Guardrails (do NOT break)
+- Do NOT change the access-scoring math in `lib/engine.ts` (haversine,
+  `scoreFromDistance`, persona weights) or `simulatePlacement` in `lib/client.ts`.
+- Do NOT change the A/B mechanic (A/B pins + connector) — only add to it.
+- Keep the dark glass aesthetic and existing Tailwind class patterns; don't
+  restructure the overall layout.
+- After ANY change to `scripts/build-data.ts` or the data shape in `lib/types.ts`,
+  run `npm run build-data` to regenerate `public/data/reach.json`, then verify the
+  app loads. Run `npm run build` to confirm it still type-checks.
+- Keep all copy honest: never call this a "forecaster," never present synthetic
+  figures as official Abu Dhabi market data. Use honest verbs: maps, estimates,
+  recommends, illustrates. Always credit OpenStreetMap (ODbL) where OSM data ships.

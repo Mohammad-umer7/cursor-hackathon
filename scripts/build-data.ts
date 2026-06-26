@@ -317,14 +317,32 @@ async function main() {
   // population & demand from communities
   const communityByDistrict = new Map<
     string,
-    { pop: number; demandSum: number; demandN: number; opportunity: string }
+    {
+      pop: number;
+      demandSum: number;
+      demandN: number;
+      experienceSum: number;
+      experienceN: number;
+      mobilitySum: number;
+      mobilityN: number;
+      opportunity: string;
+    }
   >();
   for (const r of communityRows) {
     const d = (r.district || "").trim();
     if (!d) continue;
     let agg = communityByDistrict.get(d);
     if (!agg) {
-      agg = { pop: 0, demandSum: 0, demandN: 0, opportunity: "" };
+      agg = {
+        pop: 0,
+        demandSum: 0,
+        demandN: 0,
+        experienceSum: 0,
+        experienceN: 0,
+        mobilitySum: 0,
+        mobilityN: 0,
+        opportunity: "",
+      };
       communityByDistrict.set(d, agg);
     }
     agg.pop += num(r.population_estimate);
@@ -332,6 +350,16 @@ async function main() {
     if (demand > 0) {
       agg.demandSum += demand;
       agg.demandN += 1;
+    }
+    const experience = num(r.resident_experience_score);
+    if (experience > 0) {
+      agg.experienceSum += experience;
+      agg.experienceN += 1;
+    }
+    const mobility = num(r.mobility_score);
+    if (mobility > 0) {
+      agg.mobilitySum += mobility;
+      agg.mobilityN += 1;
     }
     if (!agg.opportunity && r.optimization_opportunity) {
       agg.opportunity = r.optimization_opportunity;
@@ -413,6 +441,14 @@ async function main() {
         comm && comm.demandN > 0
           ? Math.round(comm.demandSum / comm.demandN)
           : 50,
+      residentExperience:
+        comm && comm.experienceN > 0
+          ? Math.round(comm.experienceSum / comm.experienceN)
+          : 0,
+      mobility:
+        comm && comm.mobilityN > 0
+          ? Math.round(comm.mobilitySum / comm.mobilityN)
+          : 0,
       opportunity: comm?.opportunity || "",
       access,
       worst,

@@ -21,6 +21,9 @@ export interface Gap {
   worst: CategoryKey;
   population: number;
   demand: number;
+  residentExperience: number;
+  mobility: number;
+  opportunity: string;
   affectedPopulation: number;
   unservedCells: number;
   cells: Cell[];
@@ -102,6 +105,9 @@ export function targetForDistrict(
       cells.reduce((s, c) => s + c.weight, 0) * ppw
     ),
     demand: summary ? summary.demand : 50,
+    residentExperience: summary ? summary.residentExperience : 0,
+    mobility: summary ? summary.mobility : 0,
+    opportunity: summary ? summary.opportunity : "",
     affectedPopulation: Math.round(affectedWeight * ppw),
     unservedCells,
     cells,

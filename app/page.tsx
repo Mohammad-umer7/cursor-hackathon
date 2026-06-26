@@ -21,6 +21,7 @@ import TopBar from "@/components/TopBar";
 import LeftRail from "@/components/LeftRail";
 import Legend from "@/components/Legend";
 import Inspector from "@/components/Inspector";
+import IntroOverlay from "@/components/IntroOverlay";
 
 const ALL_CATS = new Set<CategoryKey>(CATEGORIES.map((c) => c.key));
 
@@ -82,6 +83,7 @@ export default function Page() {
   const [narration, setNarration] = useState("");
 
   const [asking, setAsking] = useState(false);
+  const [showIntro, setShowIntro] = useState(true);
 
   const mapRef = useRef<MapHandle | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -359,6 +361,11 @@ export default function Page() {
     [data, persona, openTarget]
   );
 
+  const handleIntroExample = useCallback(() => {
+    setShowIntro(false);
+    if (gaps.length > 0) handleSelectGap(gaps[0]);
+  }, [gaps, handleSelectGap]);
+
   if (!data) {
     return (
       <main className="flex h-screen w-screen items-center justify-center bg-ink-950">
@@ -400,7 +407,12 @@ export default function Page() {
         </div>
       )}
 
-      <TopBar meta={data.meta} persona={persona} onPersona={handlePersona} />
+      <TopBar
+        meta={data.meta}
+        persona={persona}
+        onPersona={handlePersona}
+        onHelp={() => setShowIntro(true)}
+      />
 
       <LeftRail
         activeCategories={activeCategories}
@@ -440,7 +452,7 @@ export default function Page() {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
-          className="glass pointer-events-none absolute right-4 top-1/2 z-20 w-[230px] -translate-y-1/2 rounded-2xl p-4 shadow-float"
+          className="glass pointer-events-none absolute right-4 top-1/2 z-20 hidden w-[230px] -translate-y-1/2 rounded-2xl p-4 shadow-float lg:block"
         >
           <div className="mb-2 flex items-center gap-2 text-accent">
             <MousePointerClick size={16} />
@@ -455,6 +467,35 @@ export default function Page() {
           </p>
         </motion.div>
       )}
+
+      {/* compact guidance pill for smaller screens (the card above is lg-only) */}
+      {!gap && mapLoaded && (
+        <div className="pointer-events-none absolute bottom-20 left-1/2 z-20 -translate-x-1/2 lg:hidden">
+          <div className="glass flex items-center gap-2 rounded-full px-3.5 py-2 shadow-float">
+            <MousePointerClick size={14} className="text-accent" />
+            <span className="text-[11px] text-white/70">
+              Tap a red zone to see where to build next
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* provenance / honesty footer */}
+      <div className="pointer-events-none absolute bottom-2 left-3 z-10 hidden max-w-[46%] text-[9.5px] leading-snug text-white/30 md:block">
+        Amenities: real OpenStreetMap data © OpenStreetMap contributors (ODbL).
+        Community, listing &amp; parcel figures: illustrative synthetic data for
+        this prototype.
+      </div>
+
+      <AnimatePresence>
+        {showIntro && (
+          <IntroOverlay
+            onExample={handleIntroExample}
+            onDismiss={() => setShowIntro(false)}
+            canExample={gaps.length > 0}
+          />
+        )}
+      </AnimatePresence>
     </main>
   );
 }
