@@ -7,6 +7,7 @@ import path from "node:path";
 import { latLngToCell, cellToLatLng } from "h3-js";
 import {
   CATEGORIES,
+  CATEGORY_THRESHOLDS,
   accessFromDistances,
   essentialOf,
   haversine,
@@ -313,6 +314,67 @@ async function main() {
     });
   }
 
+  // ----- E2SFCA supply accessibility per cell, per category -----
+  // Enhanced 2-Step Floating Catchment Area (Luo & Qi 2009).
+  // Three distance zones inside the catchment d0(c) with gaussian-ish decay.
+  const E2SFCA_WEIGHTS = [1.0, 0.42, 0.09];
+  const zoneWeight = (d: number, d0: number): number => {
+    if (d > d0) return 0;
+    if (d < d0 / 3) return E2SFCA_WEIGHTS[0];
+    if (d < (2 * d0) / 3) return E2SFCA_WEIGHTS[1];
+    return E2SFCA_WEIGHTS[2];
+  };
+
+  const supplyTarget = {} as Record<CategoryKey, number>;
+  for (const c of CATEGORIES) {
+    const d0 = CATEGORY_THRESHOLDS[c.key];
+    const amenityPts = pointsByCat[c.key];
+
+    // Step 1: each amenity's provider-to-population ratio R_j.
+    const Rj = new Array<number>(amenityPts.length).fill(0);
+    for (let j = 0; j < amenityPts.length; j++) {
+      const a = amenityPts[j];
+      let denom = 0;
+      for (const cell of cells) {
+        const d = haversine(cell.lat, cell.lng, a.lat, a.lng);
+        if (d <= d0) denom += cell.weight * zoneWeight(d, d0);
+      }
+      Rj[j] = denom > 0 ? 1 / denom : 0; // S_j = 1 per amenity
+    }
+
+    // Step 2: each cell sums R_j of amenities in range, decayed.
+    for (const cell of cells) {
+      let A = 0;
+      for (let j = 0; j < amenityPts.length; j++) {
+        const a = amenityPts[j];
+        const d = haversine(cell.lat, cell.lng, a.lat, a.lng);
+        if (d <= d0) A += Rj[j] * zoneWeight(d, d0);
+      }
+      if (!cell.supply) cell.supply = {} as Record<CategoryKey, number>;
+      cell.supply[c.key] = Number(A.toPrecision(6));
+    }
+
+    // Population-weighted 75th percentile of A across populated cells = "well-served".
+    const populated = cells.filter((cl) => cl.weight > 0);
+    const sorted = populated
+      .map((cl) => ({ a: cl.supply![c.key], w: cl.weight }))
+      .sort((x, y) => x.a - y.a);
+    const totalW = sorted.reduce((s, x) => s + x.w, 0);
+    let target = 0;
+    if (totalW > 0) {
+      const cutoff = 0.75 * totalW;
+      let cum = 0;
+      for (const x of sorted) {
+        cum += x.w;
+        if (cum >= cutoff) {
+          target = x.a;
+          break;
+        }
+      }
+    }
+    supplyTarget[c.key] = target > 0 ? Number(target.toPrecision(6)) : 1e-6;
+  }
+
   // ----- district summaries -----
   // population & demand from communities
   const communityByDistrict = new Map<
@@ -501,6 +563,7 @@ async function main() {
       cellCount: cells.length,
       listingCount,
       generatedAt: new Date().toISOString(),
+      supplyTarget,
     },
     amenities,
     cells,

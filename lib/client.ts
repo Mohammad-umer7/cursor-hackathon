@@ -14,6 +14,73 @@ import type { Cell, DistrictSummary, Parcel, ReachData } from "./types";
 // A cell is "in reach" of a category once its category score >= 50.
 export const REACH_THRESHOLD = 50;
 
+// ---- Unmet-Demand Score (UDS) tunables (Phase 1) ----
+export const UDS_ALPHA = 0.6; // population dampener (key fix vs raw-population dominance)
+export const UDS_LAMBDA = 0.4; // demand weight
+// Local-prioritization floor: how much a district's category UDS survives when the
+// service is NOT its standout local gap. The (FLOOR + deficitShare) factor
+// decorrelates categories on the sparse synthetic supply maps so different
+// questions surface different neighborhoods. Tunable.
+export const UDS_LOCAL_FLOOR = 0.25;
+// Minimum buildable parcel size (sqm) for a facility of each category.
+export const MIN_SIZE: Record<CategoryKey, number> = {
+  healthcare: 5000,
+  education: 1800,
+  grocery: 1000,
+  parks: 2000,
+  transit: 500,
+  services: 800,
+};
+
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+
+/** Supply target ("well-served" benchmark) for a category, or null if absent. */
+function supplyTargetFor(
+  data: ReachData,
+  category: CategoryKey
+): number | null {
+  const t = data.meta.supplyTarget?.[category];
+  return typeof t === "number" && t > 0 ? t : null;
+}
+
+/**
+ * E2SFCA shortage for a cell+category in [0,1] (0 = met, 1 = desert), or null
+ * if supply data is unavailable (stale reach.json).
+ */
+function cellShortage(
+  cell: Cell,
+  category: CategoryKey,
+  target: number | null
+): number | null {
+  if (target == null || !cell.supply || cell.supply[category] === undefined) {
+    return null;
+  }
+  return clamp01((target - cell.supply[category]) / target);
+}
+
+/** Whether a district has a buildable parcel adequate for the category. */
+function hasBuildableParcel(
+  data: ReachData,
+  district: string,
+  category: CategoryKey
+): boolean {
+  const min = MIN_SIZE[category];
+  return data.parcels.some(
+    (p) =>
+      p.district === district &&
+      (p.status === "vacant" || p.status === "under_development") &&
+      p.size >= min
+  );
+}
+
+export interface DistrictCategoryRank {
+  district: string;
+  peopleShort: number;
+  deprivation: number; // population-weighted mean shortage 0..1
+  buildable: number; // 1 or 0.35 soft gate
+  uds: number;
+}
+
 export interface Gap {
   district: string;
   lat: number;
@@ -85,7 +152,10 @@ export function targetForDistrict(
     ));
 
   const threshold = CATEGORY_THRESHOLDS[worst];
-  let affectedWeight = 0;
+  const target = supplyTargetFor(data, worst);
+  let affectedWeight = 0; // legacy scoreFromDistance count (fallback)
+  let shortageWeight = 0; // E2SFCA shortage-weighted count (preferred)
+  let supplyAvailable = false;
   let unservedCells = 0;
   let severity = 0;
 
@@ -97,7 +167,18 @@ export function targetForDistrict(
       affectedWeight += cell.weight;
       unservedCells += 1;
     }
+    const shortage = cellShortage(cell, worst, target);
+    if (shortage != null) {
+      supplyAvailable = true;
+      shortageWeight += cell.weight * shortage;
+    }
   }
+
+  // Category-true affected population from the supply model when available,
+  // else fall back to the legacy nearest-distance count.
+  const affectedPopulation = Math.round(
+    (supplyAvailable ? shortageWeight : affectedWeight) * ppw
+  );
 
   const access = summary
     ? summary.access[persona]
@@ -116,7 +197,7 @@ export function targetForDistrict(
     residentExperience: summary ? summary.residentExperience : 0,
     mobility: summary ? summary.mobility : 0,
     opportunity: summary ? summary.opportunity : "",
-    affectedPopulation: Math.round(affectedWeight * ppw),
+    affectedPopulation,
     unservedCells,
     cells,
     severity: Math.round(severity),
@@ -265,13 +346,9 @@ function categoryDeficits(cells: Cell[]): Record<CategoryKey, number> {
 }
 
 /**
- * Best district to build a new facility of `category`.
- * Ranks by residents underserved for THAT service, amplified by how much that
- * service stands out as the district's local gap — so different questions
- * surface different, sensible neighborhoods (people present + that service
- * specifically lacking) rather than always returning the all-around worst area.
+ * Legacy deficit-share fallback (used when supply data is absent / stale).
  */
-export function worstDistrictForCategory(
+function worstDistrictByDeficit(
   data: ReachData,
   persona: PersonaKey,
   category: CategoryKey
@@ -283,9 +360,8 @@ export function worstDistrictForCategory(
     if (cells.length === 0) continue;
     const gap = targetForDistrict(data, d.district, persona, category);
     const def = categoryDeficits(cells);
-    const totalDef =
-      CATEGORIES.reduce((s, c) => s + def[c.key], 0) || 1;
-    const share = def[category] / totalDef; // 0..1 of the district's gap due to this category
+    const totalDef = CATEGORIES.reduce((s, c) => s + def[c.key], 0) || 1;
+    const share = def[category] / totalDef;
     const score = gap.affectedPopulation * (0.4 + share);
     if (score > bestScore) {
       bestScore = score;
@@ -293,6 +369,70 @@ export function worstDistrictForCategory(
     }
   }
   return best;
+}
+
+/**
+ * Rank all districts for placing a `category` facility using the E2SFCA
+ * Unmet-Demand Score (UDS): people present AND underserved, dampened by α, lifted
+ * by service demand (λ), and gated by buildable land. Sorted descending.
+ */
+export function rankDistrictsForCategory(
+  data: ReachData,
+  category: CategoryKey
+): DistrictCategoryRank[] {
+  const target = supplyTargetFor(data, category);
+  const rows: DistrictCategoryRank[] = [];
+
+  for (const d of data.districts) {
+    const cells = cellsOfDistrict(data, d.district);
+    if (cells.length === 0) continue;
+    const ppw = peoplePerWeight(d, cells);
+
+    let shortageWeight = 0;
+    let totalWeight = 0;
+    for (const cell of cells) {
+      const shortage = cellShortage(cell, category, target);
+      if (shortage == null) continue;
+      shortageWeight += cell.weight * shortage;
+      totalWeight += cell.weight;
+    }
+
+    const peopleShort = Math.round(shortageWeight * ppw);
+    const deprivation = totalWeight > 0 ? shortageWeight / totalWeight : 0;
+    const buildable = hasBuildableParcel(data, d.district, category) ? 1 : 0.35;
+
+    // Local-prioritization: how much of this district's overall access gap is
+    // due to THIS category (decorrelates categories so answers diverge).
+    const def = categoryDeficits(cells);
+    const totalDef = CATEGORIES.reduce((s, c) => s + def[c.key], 0) || 1;
+    const localShare = def[category] / totalDef;
+
+    const uds =
+      Math.pow(Math.max(0, peopleShort), UDS_ALPHA) *
+      (1 + UDS_LAMBDA * (d.demand / 100)) *
+      buildable *
+      (UDS_LOCAL_FLOOR + localShare);
+
+    rows.push({ district: d.district, peopleShort, deprivation, buildable, uds });
+  }
+
+  return rows.sort((a, b) => b.uds - a.uds);
+}
+
+/**
+ * Best district to build a new facility of `category` (highest UDS).
+ * Falls back to the deficit-share heuristic if supply data is unavailable.
+ */
+export function worstDistrictForCategory(
+  data: ReachData,
+  persona: PersonaKey,
+  category: CategoryKey
+): string {
+  if (supplyTargetFor(data, category) == null) {
+    return worstDistrictByDeficit(data, persona, category);
+  }
+  const ranked = rankDistrictsForCategory(data, category);
+  return ranked.length > 0 ? ranked[0].district : worstDistrictByDeficit(data, persona, category);
 }
 
 /**

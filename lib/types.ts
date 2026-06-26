@@ -19,6 +19,8 @@ export interface Cell {
   dist: Record<CategoryKey, number>;
   access: Record<PersonaKey, number>;
   worst: Record<PersonaKey, CategoryKey>;
+  // E2SFCA supply accessibility per category (optional-safe for stale data).
+  supply?: Record<CategoryKey, number>;
 }
 
 export interface DistrictSummary {
@@ -59,6 +61,8 @@ export interface ReachMeta {
   cellCount: number;
   listingCount: number;
   generatedAt: string;
+  // E2SFCA "well-served" benchmark supply per category (pop-weighted 75th pct).
+  supplyTarget?: Record<CategoryKey, number>;
 }
 
 export interface ReachData {
