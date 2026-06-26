@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { MousePointerClick } from "lucide-react";
 import type { CategoryKey, PersonaKey } from "@/lib/engine";
-import { CATEGORIES } from "@/lib/engine";
+import { CATEGORIES, CATEGORY_THRESHOLDS } from "@/lib/engine";
 import type { Parcel, ReachData, RecommendResult } from "@/lib/types";
 import {
   baselinePoint,
@@ -14,10 +14,12 @@ import {
   rankGaps,
   simulatePlacement,
   targetForDistrict,
+  unservedCellsOf,
   worstDistrictForCategory,
   type Gap,
   type SimResult,
 } from "@/lib/client";
+import { zonePolygonFC, ringFC, type FC } from "@/lib/geo";
 import MapCanvas, { type MapHandle } from "@/components/MapCanvas";
 import TopBar from "@/components/TopBar";
 import LeftRail from "@/components/LeftRail";
@@ -96,6 +98,30 @@ export default function Page() {
       persona
     );
   }, [data, gap, candidates, aiResult, persona]);
+
+  const recZone = useMemo<FC | null>(
+    () => (gap ? zonePolygonFC(unservedCellsOf(gap)) : null),
+    [gap]
+  );
+
+  const catchment = useMemo<FC | null>(() => {
+    if (!gap || !aiResult) return null;
+    return ringFC(
+      { lat: aiResult.recommended_lat, lng: aiResult.recommended_lng },
+      CATEGORY_THRESHOLDS[gap.worst]
+    );
+  }, [gap, aiResult]);
+
+  const rankedSites = useMemo(
+    () =>
+      rankedCandidates.map((c) => ({
+        lat: c.parcel.lat,
+        lng: c.parcel.lng,
+        rank: c.rank,
+        selected: c.selected,
+      })),
+    [rankedCandidates]
+  );
 
   const cellTargets = useMemo(() => {
     if (!data) return {};
@@ -388,6 +414,9 @@ export default function Page() {
             ? { district: gap.district, worst: gap.worst, access: gap.access }
             : null
         }
+        recZone={recZone}
+        catchment={catchment}
+        rankedSites={rankedSites}
         onCellClick={handleCellClick}
         onLoaded={() => setMapLoaded(true)}
       />

@@ -629,6 +629,15 @@ export function baselinePoint(gap: Gap): { lat: number; lng: number } {
   return { lat: wlat / wsum, lng: wlng / wsum };
 }
 
+/** Cells of the gap that are underserved for its weakest category. */
+export function unservedCellsOf(gap: Gap): Cell[] {
+  const threshold = CATEGORY_THRESHOLDS[gap.worst];
+  const list = gap.cells.filter(
+    (c) => scoreFromDistance(c.dist[gap.worst], threshold) < REACH_THRESHOLD
+  );
+  return list.length > 0 ? list : gap.cells;
+}
+
 /** Vacant / under-development parcels in the district nearest to `near`, top 12. */
 export function candidateParcels(
   data: ReachData,

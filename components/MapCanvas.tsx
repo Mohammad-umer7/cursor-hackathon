@@ -8,8 +8,10 @@ import {
 } from "react";
 import maplibregl from "maplibre-gl";
 import { accessColor, CATEGORIES, type CategoryKey } from "@/lib/engine";
-import { amenitiesFC, hexFC, lineFC } from "@/lib/geo";
+import { amenitiesFC, hexFC, lineFC, type FC } from "@/lib/geo";
 import type { ReachData } from "@/lib/types";
+
+const EMPTY_FC: FC = { type: "FeatureCollection", features: [] };
 
 const STYLE_URL =
   "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
@@ -29,6 +31,11 @@ interface SelectedGapInfo {
   access: number;
 }
 
+interface RankedSite extends LatLng {
+  rank: number;
+  selected: boolean;
+}
+
 interface MapCanvasProps {
   data: ReachData;
   activeCategories: Set<CategoryKey>;
@@ -38,6 +45,9 @@ interface MapCanvasProps {
   facility: LatLng | null;
   showAB: boolean;
   selectedGap: SelectedGapInfo | null;
+  recZone: FC | null;
+  catchment: FC | null;
+  rankedSites: RankedSite[];
   onCellClick: (district: string) => void;
   onLoaded: () => void;
 }
@@ -54,6 +64,9 @@ const MapCanvas = forwardRef<MapHandle, MapCanvasProps>(function MapCanvas(
     facility,
     showAB,
     selectedGap,
+    recZone,
+    catchment,
+    rankedSites,
     onCellClick,
     onLoaded,
   },
@@ -167,6 +180,45 @@ const MapCanvas = forwardRef<MapHandle, MapCanvasProps>(function MapCanvas(
           "line-width": 1.5,
           "line-dasharray": [2, 2],
           "line-opacity": 0.8,
+        },
+      });
+
+      // 2b. recommended search zone (convex hull of underserved cells)
+      map.addSource("rec-zone", { type: "geojson", data: EMPTY_FC as any });
+      map.addLayer({
+        id: "rec-zone-fill",
+        type: "fill",
+        source: "rec-zone",
+        paint: { "fill-color": "#3ddc97", "fill-opacity": 0.1 },
+      });
+      map.addLayer({
+        id: "rec-zone-line",
+        type: "line",
+        source: "rec-zone",
+        paint: {
+          "line-color": "#3ddc97",
+          "line-width": 1.4,
+          "line-opacity": 0.55,
+        },
+      });
+
+      // 2c. ~15-min walk catchment ring around the recommended site
+      map.addSource("catchment", { type: "geojson", data: EMPTY_FC as any });
+      map.addLayer({
+        id: "catchment-fill",
+        type: "fill",
+        source: "catchment",
+        paint: { "fill-color": "#3ddc97", "fill-opacity": 0.05 },
+      });
+      map.addLayer({
+        id: "catchment-line",
+        type: "line",
+        source: "catchment",
+        paint: {
+          "line-color": "#3ddc97",
+          "line-width": 1.4,
+          "line-dasharray": [2, 2],
+          "line-opacity": 0.7,
         },
       });
 
@@ -361,12 +413,30 @@ const MapCanvas = forwardRef<MapHandle, MapCanvasProps>(function MapCanvas(
       );
     }
 
-    if (showAB && aiPick) {
-      markersRef.current.push(
-        new maplibregl.Marker({ element: makePin("pin-b", "B", "Reach parcel", "label-b"), anchor: "bottom" })
-          .setLngLat([aiPick.lng, aiPick.lat])
-          .addTo(map)
-      );
+    // Ranked candidate markers (replaces the single "B" pin). Rank 1 / selected
+    // gets the prominent accent pin; the rest are small numbered dots.
+    if (showAB) {
+      for (const site of rankedSites) {
+        if (site.selected || site.rank === 1) {
+          markersRef.current.push(
+            new maplibregl.Marker({
+              element: makePin("pin-b", "B", "Reach site (rank 1)", "label-b"),
+              anchor: "bottom",
+            })
+              .setLngLat([site.lng, site.lat])
+              .addTo(map)
+          );
+        } else {
+          const el = document.createElement("div");
+          el.className = "rank-dot";
+          el.textContent = String(site.rank);
+          markersRef.current.push(
+            new maplibregl.Marker({ element: el, anchor: "center" })
+              .setLngLat([site.lng, site.lat])
+              .addTo(map)
+          );
+        }
+      }
     }
 
     if (facility) {
@@ -388,7 +458,21 @@ const MapCanvas = forwardRef<MapHandle, MapCanvasProps>(function MapCanvas(
         (showAB ? lineFC(baseline, aiPick) : lineFC(null, null)) as any
       );
     }
-  }, [baseline, aiPick, facility, showAB]);
+  }, [baseline, aiPick, facility, showAB, rankedSites]);
+
+  // recommended zone + catchment ring sources
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+    const zone = map.getSource("rec-zone") as
+      | maplibregl.GeoJSONSource
+      | undefined;
+    if (zone) zone.setData((recZone ?? EMPTY_FC) as any);
+    const ring = map.getSource("catchment") as
+      | maplibregl.GeoJSONSource
+      | undefined;
+    if (ring) ring.setData((catchment ?? EMPTY_FC) as any);
+  }, [recZone, catchment]);
 
   const worstLabel =
     selectedGap &&
@@ -410,6 +494,12 @@ const MapCanvas = forwardRef<MapHandle, MapCanvasProps>(function MapCanvas(
             <div className="tnum text-[11px] text-white/55">
               Score: {selectedGap.access}/100
             </div>
+            {recZone && recZone.features.length > 0 && (
+              <div className="mt-1.5 max-w-[210px] border-t border-white/10 pt-1.5 text-[9px] leading-snug text-white/45">
+                Shaded area = indicative recommended zone · dashed ring = ~15-min
+                walk catchment · 1·2·3 = ranked candidate sites
+              </div>
+            )}
           </div>
         </div>
       )}
