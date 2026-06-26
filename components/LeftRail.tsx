@@ -41,6 +41,7 @@ interface LeftRailProps {
   onSelectGap: (gap: Gap) => void;
   asking: boolean;
   onAsk: (question: string) => void;
+  onOpenExplain: () => void;
 }
 
 function severityColor(access: number): string {
@@ -58,6 +59,7 @@ export default function LeftRail({
   onSelectGap,
   asking,
   onAsk,
+  onOpenExplain,
 }: LeftRailProps) {
   const [filtersOpen, setFiltersOpen] = useState(
     typeof window !== "undefined" ? window.innerWidth >= 1024 : true
@@ -70,6 +72,13 @@ export default function LeftRail({
 
   return (
     <div className="pointer-events-none absolute left-4 top-[100px] bottom-4 z-20 flex w-[300px] flex-col gap-3">
+      <button
+        onClick={onOpenExplain}
+        className="glass pointer-events-auto rounded-full px-3 py-2 text-left text-[10px] leading-snug text-white/55 shadow-float transition hover:bg-white/6 hover:text-white/75 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 md:hidden"
+      >
+        Maps + parcels + community signals → recommended site
+      </button>
+
       {/* Current task */}
       <div className="glass pointer-events-auto rounded-2xl p-3 shadow-float">
         <div className="mb-1.5 flex items-center gap-1.5 text-accent">

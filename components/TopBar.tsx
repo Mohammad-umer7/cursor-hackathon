@@ -11,6 +11,7 @@ interface TopBarProps {
   onPersona: (p: PersonaKey) => void;
   onHelp: () => void;
   onRunDemo: () => void;
+  onOpenExplain: () => void;
 }
 
 export default function TopBar({
@@ -19,6 +20,7 @@ export default function TopBar({
   onPersona,
   onHelp,
   onRunDemo,
+  onOpenExplain,
 }: TopBarProps) {
   return (
     <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start justify-between gap-3 p-4">
@@ -59,7 +61,16 @@ export default function TopBar({
         </div>
       </div>
 
-      <div className="pointer-events-auto flex shrink-0 items-center gap-2">
+      <div className="pointer-events-auto flex shrink-0 flex-col items-end gap-2">
+        <button
+          onClick={onOpenExplain}
+          className="glass hidden max-w-[220px] rounded-full px-3 py-1.5 text-left text-[10px] leading-snug text-white/55 shadow-float transition hover:bg-white/6 hover:text-white/75 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 md:block lg:max-w-none"
+          title="How Reach combines planning layers"
+        >
+          Maps + parcels + community signals → recommended site
+        </button>
+
+        <div className="flex items-center gap-2">
         <button
           onClick={onRunDemo}
           className="glass-strong flex items-center gap-1.5 rounded-xl px-3 py-2 text-[11.5px] font-semibold text-accent shadow-float transition hover:bg-accent/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
@@ -108,6 +119,7 @@ export default function TopBar({
               </button>
             );
           })}
+        </div>
         </div>
       </div>
     </div>

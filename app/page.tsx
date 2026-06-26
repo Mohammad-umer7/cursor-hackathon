@@ -26,6 +26,9 @@ import Inspector from "@/components/Inspector";
 import IntroOverlay from "@/components/IntroOverlay";
 import DemoProgress, { type DemoStep } from "@/components/DemoProgress";
 import SitingBrief from "@/components/SitingBrief";
+import PlanningWorkbenchOverlay, {
+  type WorkbenchMode,
+} from "@/components/PlanningWorkbenchOverlay";
 
 const ALL_CATS = new Set<CategoryKey>(CATEGORIES.map((c) => c.key));
 
@@ -90,6 +93,8 @@ export default function Page() {
   const [demoMode, setDemoMode] = useState(false);
   const [demoStep, setDemoStep] = useState<DemoStep>(1);
   const [showBrief, setShowBrief] = useState(false);
+  const [workbenchOpen, setWorkbenchOpen] = useState(false);
+  const [workbenchMode, setWorkbenchMode] = useState<WorkbenchMode>("explain");
 
   const mapRef = useRef<MapHandle | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -358,8 +363,9 @@ export default function Page() {
     [data, persona, openTarget]
   );
 
-  const runDemo = useCallback(() => {
+  const executeDemo = useCallback(() => {
     if (!data) return;
+    setWorkbenchOpen(false);
     setShowIntro(false);
     setDemoMode(true);
     setDemoStep(1);
@@ -368,9 +374,47 @@ export default function Page() {
     if (g) openTarget(g);
   }, [data, persona, gaps, openTarget]);
 
+  const startDemoFlow = useCallback(() => {
+    setShowIntro(false);
+    setWorkbenchMode("demo");
+    setWorkbenchOpen(true);
+  }, []);
+
+  const openExplainWorkbench = useCallback(() => {
+    setWorkbenchMode("explain");
+    setWorkbenchOpen(true);
+  }, []);
+
+  const handleWorkbenchRunDemo = useCallback(() => {
+    setWorkbenchMode("demo");
+  }, []);
+
+  const handleWorkbenchComplete = useCallback(() => {
+    if (workbenchMode === "demo") {
+      executeDemo();
+    } else if (workbenchMode === "brief") {
+      setWorkbenchOpen(false);
+      setShowBrief(true);
+    }
+  }, [workbenchMode, executeDemo]);
+
+  const handleWorkbenchSkip = useCallback(() => {
+    if (workbenchMode === "demo") {
+      executeDemo();
+    } else if (workbenchMode === "brief") {
+      setWorkbenchOpen(false);
+      setShowBrief(true);
+    }
+  }, [workbenchMode, executeDemo]);
+
+  const handleOpenBrief = useCallback(() => {
+    setWorkbenchMode("brief");
+    setWorkbenchOpen(true);
+  }, []);
+
   const handleIntroDemo = useCallback(() => {
-    runDemo();
-  }, [runDemo]);
+    startDemoFlow();
+  }, [startDemoFlow]);
 
   const exitDemo = useCallback(() => {
     setDemoMode(false);
@@ -428,7 +472,8 @@ export default function Page() {
         persona={persona}
         onPersona={handlePersona}
         onHelp={() => setShowIntro(true)}
-        onRunDemo={runDemo}
+        onRunDemo={startDemoFlow}
+        onOpenExplain={openExplainWorkbench}
       />
 
       {demoMode && <DemoProgress step={demoStep} onExit={exitDemo} />}
@@ -442,6 +487,7 @@ export default function Page() {
         onSelectGap={handleSelectGap}
         asking={asking}
         onAsk={handleAsk}
+        onOpenExplain={openExplainWorkbench}
       />
 
       <Legend />
@@ -463,7 +509,7 @@ export default function Page() {
             onSimulate={handleSimulate}
             onReset={handleReset}
             onClose={handleClose}
-            onOpenBrief={() => setShowBrief(true)}
+            onOpenBrief={handleOpenBrief}
           />
         )}
       </AnimatePresence>
@@ -506,6 +552,19 @@ export default function Page() {
         Amenities: OpenStreetMap-derived © OpenStreetMap contributors (ODbL).
         Community, listing &amp; parcel figures: illustrative prototype data.
       </div>
+
+      <AnimatePresence>
+        {workbenchOpen && (
+          <PlanningWorkbenchOverlay
+            open={workbenchOpen}
+            mode={workbenchMode}
+            onClose={() => setWorkbenchOpen(false)}
+            onRunDemo={handleWorkbenchRunDemo}
+            onSkip={handleWorkbenchSkip}
+            onComplete={handleWorkbenchComplete}
+          />
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {showIntro && (
