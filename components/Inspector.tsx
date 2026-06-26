@@ -342,32 +342,69 @@ export default function Inspector({
               <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/45">
                 Candidate ranking
               </div>
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 {rankedCandidates.map((c) => (
                   <div
                     key={c.parcel.id}
-                    className={`rounded-lg px-2.5 py-1.5 text-[10.5px] ring-1 ${
+                    className={`rounded-lg px-2.5 py-2 text-[10.5px] ring-1 ${
                       c.selected
                         ? "bg-accent/8 text-white/80 ring-accent/25"
                         : "bg-white/3 text-white/50 ring-white/8"
                     }`}
                   >
-                    <span className="tnum font-semibold text-white/70">
-                      {c.rank}.
-                    </span>{" "}
-                    <span className="font-medium">{c.parcel.id}</span>
-                    <span className="text-white/40"> — </span>
-                    <span
-                      className={
-                        c.selected ? "text-accent" : "text-white/45"
-                      }
-                    >
-                      {c.selected ? "Selected" : "Rejected"}
-                    </span>
-                    <span className="text-white/35"> — {c.reason}</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="tnum font-semibold text-white/70">
+                        {c.rank}.
+                      </span>
+                      <span className="font-medium">{c.parcel.id}</span>
+                      <span
+                        className={`ml-auto tnum rounded px-1.5 py-0.5 text-[9.5px] font-semibold ring-1 ${
+                          c.selected
+                            ? "bg-accent/15 text-accent ring-accent/30"
+                            : "bg-white/5 text-white/55 ring-white/10"
+                        }`}
+                        title="Weighted suitability score"
+                      >
+                        {Math.round(c.suitability * 100)}/100
+                      </span>
+                    </div>
+
+                    <div className="mt-1.5 grid grid-cols-5 gap-1">
+                      {(
+                        [
+                          ["Cover", c.scores.coverageGain],
+                          ["Build", c.scores.buildability],
+                          ["Infra", c.scores.infrastructure],
+                          ["Near", c.scores.proximity],
+                          ["Need", c.scores.equity],
+                        ] as [string, number][]
+                      ).map(([label, v]) => (
+                        <div key={label} className="flex flex-col gap-0.5">
+                          <div className="h-1 overflow-hidden rounded-full bg-white/8">
+                            <div
+                              className={`h-full rounded-full ${
+                                c.selected ? "bg-accent/70" : "bg-white/35"
+                              }`}
+                              style={{ width: `${Math.round(v * 100)}%` }}
+                            />
+                          </div>
+                          <span className="text-[8px] text-white/35">
+                            {label}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="mt-1 text-[9.5px] text-white/45">
+                      {c.reason}
+                    </div>
                   </div>
                 ))}
               </div>
+              <p className="mt-1.5 text-[8.5px] leading-snug text-white/30">
+                Suitability = 0.35·coverage + 0.20·buildability + 0.15·infra +
+                0.15·proximity + 0.15·need (engine-computed ⚙).
+              </p>
             </div>
           )}
         </section>
