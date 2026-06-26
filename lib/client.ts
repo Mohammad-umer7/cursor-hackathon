@@ -34,6 +34,25 @@ export const MIN_SIZE: Record<CategoryKey, number> = {
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
+// ---- Candidate suitability weights (Phase 3, all sub-terms 0–1) ----
+export const SUITABILITY_WEIGHTS = {
+  coverageGain: 0.35,
+  buildability: 0.2,
+  infrastructure: 0.15,
+  proximity: 0.15,
+  equity: 0.15,
+};
+
+// E2SFCA decay weights (Luo & Qi 2009), mirrored from the data builder for the
+// marginal coverage simulation.
+const E2SFCA_WEIGHTS = [1.0, 0.42, 0.09];
+function zoneWeight(d: number, d0: number): number {
+  if (d > d0) return 0;
+  if (d < d0 / 3) return E2SFCA_WEIGHTS[0];
+  if (d < (2 * d0) / 3) return E2SFCA_WEIGHTS[1];
+  return E2SFCA_WEIGHTS[2];
+}
+
 /** Supply target ("well-served" benchmark) for a category, or null if absent. */
 function supplyTargetFor(
   data: ReachData,
@@ -106,11 +125,22 @@ export interface SimResult {
   updatedAccess: Record<string, number>;
 }
 
+export interface CandidateScores {
+  coverageGain: number; // 0..1 normalized marginal newly-served population
+  buildability: number; // 0..1
+  infrastructure: number; // 0..1
+  proximity: number; // 0..1
+  equity: number; // 0..1
+}
+
 export interface RankedCandidate {
   rank: number;
   parcel: Parcel;
   selected: boolean;
   reason: string;
+  suitability: number; // 0..1 weighted multi-criteria score
+  scores: CandidateScores;
+  newReach: number; // marginal residents newly served (greedy)
 }
 
 export function cellsOfDistrict(data: ReachData, district: string): Cell[] {
@@ -267,8 +297,50 @@ export function pickDemoGap(
 }
 
 /**
- * Rank up to three candidate parcels for display. Uses simulatePlacement
- * per candidate to estimate access lift — no changes to core math.
+ * Marginal newly-served demand (raw weighted units) if a facility of `category`
+ * is added at `parcel`, via an E2SFCA marginal simulation. `extra` accumulates
+ * supply already committed by previously-selected facilities (for greedy
+ * diminishing returns). Returns raw units plus the per-cell supply increments so
+ * the caller can commit them when this parcel is chosen.
+ */
+function marginalCoverage(
+  data: ReachData,
+  parcel: Parcel,
+  category: CategoryKey,
+  target: number,
+  extra: Map<string, number>
+): { raw: number; increments: Map<string, number> } {
+  const d0 = CATEGORY_THRESHOLDS[category];
+  const inRange: { cell: Cell; w: number }[] = [];
+  let denom = 0;
+  for (const cell of data.cells) {
+    const d = haversine(cell.lat, cell.lng, parcel.lat, parcel.lng);
+    if (d <= d0) {
+      const w = zoneWeight(d, d0);
+      inRange.push({ cell, w });
+      denom += cell.weight * w;
+    }
+  }
+  const R = denom > 0 ? 1 / denom : 0; // one new supply unit
+  let raw = 0;
+  const increments = new Map<string, number>();
+  for (const { cell, w } of inRange) {
+    const base = (cell.supply?.[category] ?? 0) + (extra.get(cell.h3) ?? 0);
+    const inc = R * w;
+    const before = clamp01((target - base) / target);
+    const after = clamp01((target - (base + inc)) / target);
+    raw += cell.weight * (before - after);
+    increments.set(cell.h3, inc);
+  }
+  return { raw, increments };
+}
+
+/**
+ * Rank candidate parcels by a transparent weighted multi-criteria suitability
+ * score (coverage gain, buildability, infrastructure, proximity, equity), all
+ * sub-terms normalized 0–1. Coverage gain uses a greedy marginal E2SFCA
+ * simulation so later picks show diminishing returns. Falls back to a
+ * simulatePlacement access-lift heuristic when supply data is unavailable.
  */
 export function rankCandidates(
   data: ReachData,
@@ -279,26 +351,118 @@ export function rankCandidates(
 ): RankedCandidate[] {
   if (candidates.length === 0) return [];
 
-  const scored = candidates
-    .map((parcel) => {
-      const sim = simulatePlacement(
-        data,
-        gap.district,
-        gap.worst,
-        { lat: parcel.lat, lng: parcel.lng },
-        persona
-      );
-      const accessLift = sim.accessAfter - sim.accessBefore;
-      const composite =
-        accessLift * 120 + parcel.infra * 0.35 + parcel.potential * 0.25;
-      return { parcel, accessLift, newReach: sim.newReach, composite };
-    })
-    .sort((a, b) => b.composite - a.composite);
+  const category = gap.worst;
+  const d0 = CATEGORY_THRESHOLDS[category];
+  const target = supplyTargetFor(data, category);
+  const summary = districtSummary(data, gap.district);
+  const districtCells = cellsOfDistrict(data, gap.district);
+  const ppw = peoplePerWeight(summary, districtCells);
+  const centroid = baselinePoint(gap);
 
-  let display = scored.slice(0, 3);
+  const W = SUITABILITY_WEIGHTS;
+
+  // Static (parcel-intrinsic) sub-scores.
+  const staticScore = (parcel: Parcel) => {
+    const statusFactor =
+      parcel.status === "vacant"
+        ? 1.0
+        : parcel.status === "under_development"
+        ? 0.6
+        : 0.3;
+    const sizeAdequacy = clamp01(parcel.size / MIN_SIZE[category]);
+    const buildability = clamp01(statusFactor * sizeAdequacy);
+    const infrastructure = clamp01(
+      (0.6 * parcel.infra + 0.4 * parcel.potential) / 100
+    );
+    const distToUnserved = haversine(
+      centroid.lat,
+      centroid.lng,
+      parcel.lat,
+      parcel.lng
+    );
+    const proximity = 1 - clamp01(distToUnserved / d0);
+    const equity = clamp01(gap.demand / 100);
+    return { buildability, infrastructure, proximity, equity };
+  };
+
+  // Greedy coverage assignment (diminishing returns).
+  const extra = new Map<string, number>();
+  const remaining = [...candidates];
+  const ordered: {
+    parcel: Parcel;
+    rawCoverage: number;
+    scores: CandidateScores;
+    newReach: number;
+  }[] = [];
+
+  // Reference (max) raw coverage from the first, untouched pass for normalizing.
+  let maxRaw = 0;
+
+  const coverageRaw = (parcel: Parcel) => {
+    if (target != null) {
+      return marginalCoverage(data, parcel, category, target, extra);
+    }
+    // Fallback: access-lift heuristic (no supply data).
+    const sim = simulatePlacement(
+      data,
+      gap.district,
+      category,
+      { lat: parcel.lat, lng: parcel.lng },
+      persona
+    );
+    return {
+      raw: Math.max(0, sim.accessAfter - sim.accessBefore),
+      increments: new Map<string, number>(),
+    };
+  };
+
+  while (remaining.length > 0) {
+    let bestIdx = 0;
+    let best = coverageRaw(remaining[0]);
+    for (let i = 1; i < remaining.length; i++) {
+      const c = coverageRaw(remaining[i]);
+      if (c.raw > best.raw) {
+        best = c;
+        bestIdx = i;
+      }
+    }
+    const parcel = remaining.splice(bestIdx, 1)[0];
+    if (ordered.length === 0) maxRaw = best.raw;
+    const stat = staticScore(parcel);
+    ordered.push({
+      parcel,
+      rawCoverage: best.raw,
+      scores: { coverageGain: 0, ...stat }, // coverageGain filled after normalize
+      newReach: Math.round(best.raw * ppw),
+    });
+    // Commit this facility's supply so subsequent picks see diminished gains.
+    for (const [h3, inc] of best.increments) {
+      extra.set(h3, (extra.get(h3) ?? 0) + inc);
+    }
+  }
+
+  const denom = maxRaw > 0 ? maxRaw : 1;
+  for (const o of ordered) {
+    o.scores.coverageGain = clamp01(o.rawCoverage / denom);
+  }
+
+  const suitabilityOf = (s: CandidateScores) =>
+    W.coverageGain * s.coverageGain +
+    W.buildability * s.buildability +
+    W.infrastructure * s.infrastructure +
+    W.proximity * s.proximity +
+    W.equity * s.equity;
+
+  // Re-rank by full suitability (coverage greedy order is a strong prior, but
+  // the weighted score is the displayed ranking).
+  const fullScored = ordered
+    .map((o) => ({ ...o, suitability: suitabilityOf(o.scores) }))
+    .sort((a, b) => b.suitability - a.suitability);
+
+  let display = fullScored.slice(0, 3);
   if (selectedId && !display.some((d) => d.parcel.id === selectedId)) {
-    const sel = scored.find((s) => s.parcel.id === selectedId);
-    if (sel) display = [...scored.slice(0, 2), sel];
+    const sel = fullScored.find((s) => s.parcel.id === selectedId);
+    if (sel) display = [...fullScored.slice(0, 2), sel];
   }
 
   const winner =
@@ -308,26 +472,33 @@ export function rankCandidates(
 
   return display.map((item, i) => {
     const selected =
-      selectedId !== null
-        ? item.parcel.id === selectedId
-        : i === 0;
+      selectedId !== null ? item.parcel.id === selectedId : i === 0;
+
     let reason: string;
     if (selected) {
-      reason = "Selected — best access impact + buildable";
-    } else if (item.parcel.infra < winner.parcel.infra - 8) {
-      reason = "Rejected — lower infrastructure";
-    } else if (item.accessLift < winner.accessLift - 0.3) {
-      reason = "Rejected — farther from underserved cells";
-    } else if (item.parcel.potential < winner.parcel.potential - 8) {
-      reason = "Rejected — lower development potential";
+      reason = `Selected — best balance: covers ~${item.newReach.toLocaleString()} residents on ${item.parcel.status.replace(/_/g, " ")} land`;
+    } else if (item.scores.coverageGain > winner.scores.coverageGain + 0.05) {
+      reason = `Rejected — covers more (${item.newReach.toLocaleString()}) but ${
+        item.parcel.status === "vacant" ? "weaker site quality" : "on under-development land"
+      }`;
+    } else if (item.scores.buildability < winner.scores.buildability - 0.1) {
+      reason = "Rejected — lower buildability (status / size)";
+    } else if (item.scores.infrastructure < winner.scores.infrastructure - 0.1) {
+      reason = "Rejected — lower infrastructure / potential";
+    } else if (item.scores.proximity < winner.scores.proximity - 0.1) {
+      reason = "Rejected — farther from the underserved core";
     } else {
-      reason = "Rejected — lower combined score";
+      reason = `Rejected — lower overall suitability (${Math.round(item.suitability * 100)}/100)`;
     }
+
     return {
       rank: i + 1,
       parcel: item.parcel,
       selected: selected || (selectedId === null && i === 0),
       reason,
+      suitability: item.suitability,
+      scores: item.scores,
+      newReach: item.newReach,
     };
   });
 }

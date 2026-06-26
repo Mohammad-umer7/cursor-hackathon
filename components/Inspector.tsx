@@ -18,6 +18,8 @@ import {
 } from "@/lib/engine";
 import type { Gap, RankedCandidate, SimResult } from "@/lib/client";
 import type { RecommendResult, Parcel } from "@/lib/types";
+import type { AgentStep } from "@/lib/agents";
+import AgentTrace from "@/components/AgentTrace";
 
 const LABELS: Record<CategoryKey, string> = CATEGORIES.reduce((acc, c) => {
   acc[c.key] = c.label;
@@ -31,6 +33,7 @@ interface InspectorProps {
   aiResult: RecommendResult | null;
   aiSource: string | null;
   streamText: string;
+  agentSteps: AgentStep[];
   rankedCandidates: RankedCandidate[];
   simulated: boolean;
   simResult: SimResult | null;
@@ -119,6 +122,7 @@ export default function Inspector({
   aiResult,
   aiSource,
   streamText,
+  agentSteps,
   rankedCandidates,
   simulated,
   simResult,
@@ -166,6 +170,12 @@ export default function Inspector({
       </div>
 
       <div className="scroll-thin flex-1 space-y-5 overflow-y-auto p-4">
+        {agentSteps.length > 0 && (
+          <section className="space-y-2">
+            <AgentTrace steps={agentSteps} />
+          </section>
+        )}
+
         {/* Step 1 */}
         <section className="space-y-2">
           <StepHeader n={1} title="Access gap found" />

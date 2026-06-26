@@ -87,6 +87,13 @@ export interface RecommendParcel {
   potential: number;
 }
 
+export interface RecommendAnalysis {
+  deprivationPct: number | null;
+  udsRank: number | null;
+  topCandidateId: string | null;
+  topSuitability: number | null;
+}
+
 export interface RecommendRequest {
   category: CategoryKey;
   categoryLabel: string;
@@ -96,6 +103,8 @@ export interface RecommendRequest {
   demandIndex: number;
   baseline: { lat: number; lng: number };
   parcels: RecommendParcel[];
+  // Optional computed context so the LLM narrative stays consistent with numbers.
+  analysis?: RecommendAnalysis;
 }
 
 export interface RecommendResult {

@@ -99,6 +99,21 @@ function userPrompt(req: RecommendRequest): string {
   lines.push(`Affected residents: ${req.affectedPopulation}`);
   lines.push(`Current access score: ${req.currentAccess}/100`);
   lines.push(`Service-demand index: ${req.demandIndex}/100`);
+  if (req.analysis) {
+    const a = req.analysis;
+    lines.push("");
+    lines.push(`COMPUTED ANALYSIS (from the engine — do not contradict these numbers):`);
+    if (a.deprivationPct != null)
+      lines.push(`- Supply deprivation (E2SFCA): ${a.deprivationPct}% short of the well-served benchmark`);
+    if (a.udsRank != null)
+      lines.push(`- District unmet-demand rank for this service: #${a.udsRank}`);
+    if (a.topCandidateId)
+      lines.push(
+        `- Engine's top-suitability parcel: ${a.topCandidateId}${
+          a.topSuitability != null ? ` (suitability ${a.topSuitability}/100)` : ""
+        }`
+      );
+  }
   lines.push("");
   lines.push(
     `NAIVE BASELINE (nearest-distance point, may be unbuildable): ${req.baseline.lat.toFixed(

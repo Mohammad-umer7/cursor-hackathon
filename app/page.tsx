@@ -29,39 +29,13 @@ import SitingBrief from "@/components/SitingBrief";
 import PlanningWorkbenchOverlay, {
   type WorkbenchMode,
 } from "@/components/PlanningWorkbenchOverlay";
+import {
+  runSitingPipeline,
+  initialSteps,
+  type AgentStep,
+} from "@/lib/agents";
 
 const ALL_CATS = new Set<CategoryKey>(CATEGORIES.map((c) => c.key));
-
-/** Tolerantly extract the partial `rationale` string from a growing JSON buffer. */
-function liveField(buffer: string, field: string): string {
-  const key = `"${field}"`;
-  const ki = buffer.indexOf(key);
-  if (ki < 0) return "";
-  let i = ki + key.length;
-  // skip whitespace and colon
-  while (i < buffer.length && buffer[i] !== ":") i++;
-  i++; // past ':'
-  while (i < buffer.length && /\s/.test(buffer[i])) i++;
-  if (buffer[i] !== '"') return "";
-  i++; // past opening quote
-  let out = "";
-  while (i < buffer.length) {
-    const ch = buffer[i];
-    if (ch === "\\") {
-      const next = buffer[i + 1];
-      if (next === undefined) break;
-      if (next === "n") out += "\n";
-      else if (next === "t") out += "\t";
-      else out += next;
-      i += 2;
-      continue;
-    }
-    if (ch === '"') break;
-    out += ch;
-    i++;
-  }
-  return out;
-}
 
 export default function Page() {
   const [data, setData] = useState<ReachData | null>(null);
@@ -81,6 +55,7 @@ export default function Page() {
   const [aiResult, setAiResult] = useState<RecommendResult | null>(null);
   const [streamText, setStreamText] = useState("");
   const [aiSource, setAiSource] = useState<string | null>(null);
+  const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
 
   const [simulated, setSimulated] = useState(false);
   const [simResult, setSimResult] = useState<SimResult | null>(null);
@@ -149,85 +124,39 @@ export default function Page() {
       setAiResult(null);
       setStreamText("");
       setAiSource(null);
+      setAgentSteps(initialSteps());
       if (demoMode) setDemoStep(2);
 
-      const categoryLabel =
-        CATEGORIES.find((c) => c.key === g.worst)?.label ?? g.worst;
-
-      try {
-        const res = await fetch("/api/recommend", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+      await runSitingPipeline(
+        data,
+        g,
+        persona,
+        { baseline: base, candidates: cands },
+        {
           signal: ctrl.signal,
-          body: JSON.stringify({
-            category: g.worst,
-            categoryLabel,
-            district: g.district,
-            affectedPopulation: g.affectedPopulation,
-            currentAccess: g.access,
-            demandIndex: g.demand,
-            baseline: base,
-            parcels: cands.map((p) => ({
-              id: p.id,
-              status: p.status,
-              zone: p.zone,
-              land_use: p.land_use,
-              size: p.size,
-              lat: p.lat,
-              lng: p.lng,
-              infra: p.infra,
-              potential: p.potential,
-            })),
-          }),
-        });
-
-        if (!res.body) throw new Error("no stream");
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buf = "";
-        let acc = "";
-
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buf += decoder.decode(value, { stream: true });
-          const lines = buf.split("\n");
-          buf = lines.pop() ?? "";
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            let msg: any;
-            try {
-              msg = JSON.parse(line);
-            } catch {
-              continue;
-            }
-            if (msg.t === "chunk") {
-              acc += msg.v;
-              const live = liveField(acc, "rationale");
-              if (live) setStreamText(live);
-              else if (acc && !acc.includes("{")) setStreamText(acc);
-            } else if (msg.t === "done") {
-              const result = msg.v as RecommendResult;
-              setAiResult(result);
-              setAiSource(msg.source ?? null);
-              setStreamText(result.rationale);
-              setAiLoading(false);
-              if (demoMode) setDemoStep(3);
-              const mid = {
-                lat: (base.lat + result.recommended_lat) / 2,
-                lng: (base.lng + result.recommended_lng) / 2,
-              };
-              mapRef.current?.flyTo(mid.lng, mid.lat, 13.6);
-            }
-          }
+          onStep: (step) => {
+            setAgentSteps((prev) =>
+              prev.map((s) => (s.id === step.id ? { ...s, ...step } : s))
+            );
+          },
+          onStreamText: (t) => setStreamText(t),
+          onResult: (result, source) => {
+            setAiResult(result);
+            setAiSource(source);
+            setStreamText(result.rationale);
+            setAiLoading(false);
+            if (demoMode) setDemoStep(3);
+            const mid = {
+              lat: (base.lat + result.recommended_lat) / 2,
+              lng: (base.lng + result.recommended_lng) / 2,
+            };
+            mapRef.current?.flyTo(mid.lng, mid.lat, 13.6);
+          },
         }
-        setAiLoading(false);
-      } catch (e: any) {
-        if (e?.name === "AbortError") return;
-        setAiLoading(false);
-      }
+      );
+      setAiLoading(false);
     },
-    [data, demoMode]
+    [data, demoMode, persona]
   );
 
   const openTarget = useCallback(
@@ -327,6 +256,7 @@ export default function Page() {
     setAiLoading(false);
     setStreamText("");
     setAiSource(null);
+    setAgentSteps([]);
     setSimulated(false);
     setSimResult(null);
     setFacility(null);
@@ -363,9 +293,8 @@ export default function Page() {
     [data, persona, openTarget]
   );
 
-  const executeDemo = useCallback(() => {
+  const beginDemo = useCallback(() => {
     if (!data) return;
-    setWorkbenchOpen(false);
     setShowIntro(false);
     setDemoMode(true);
     setDemoStep(1);
@@ -374,11 +303,14 @@ export default function Page() {
     if (g) openTarget(g);
   }, [data, persona, gaps, openTarget]);
 
+  // Open the workbench in demo mode AND kick off the real pipeline so the
+  // workbench renders the live AgentTrace (no more theatrical timer).
   const startDemoFlow = useCallback(() => {
     setShowIntro(false);
     setWorkbenchMode("demo");
     setWorkbenchOpen(true);
-  }, []);
+    beginDemo();
+  }, [beginDemo]);
 
   const openExplainWorkbench = useCallback(() => {
     setWorkbenchMode("explain");
@@ -387,25 +319,27 @@ export default function Page() {
 
   const handleWorkbenchRunDemo = useCallback(() => {
     setWorkbenchMode("demo");
-  }, []);
+    beginDemo();
+  }, [beginDemo]);
 
   const handleWorkbenchComplete = useCallback(() => {
     if (workbenchMode === "demo") {
-      executeDemo();
+      // Gap + pipeline already running; just reveal the inspector.
+      setWorkbenchOpen(false);
     } else if (workbenchMode === "brief") {
       setWorkbenchOpen(false);
       setShowBrief(true);
     }
-  }, [workbenchMode, executeDemo]);
+  }, [workbenchMode]);
 
   const handleWorkbenchSkip = useCallback(() => {
     if (workbenchMode === "demo") {
-      executeDemo();
+      setWorkbenchOpen(false);
     } else if (workbenchMode === "brief") {
       setWorkbenchOpen(false);
       setShowBrief(true);
     }
-  }, [workbenchMode, executeDemo]);
+  }, [workbenchMode]);
 
   const handleOpenBrief = useCallback(() => {
     setWorkbenchMode("brief");
@@ -502,6 +436,7 @@ export default function Page() {
             aiResult={aiResult}
             aiSource={aiSource}
             streamText={streamText}
+            agentSteps={agentSteps}
             rankedCandidates={rankedCandidates}
             simulated={simulated}
             simResult={simResult}
@@ -558,6 +493,7 @@ export default function Page() {
           <PlanningWorkbenchOverlay
             open={workbenchOpen}
             mode={workbenchMode}
+            agentSteps={agentSteps}
             onClose={() => setWorkbenchOpen(false)}
             onRunDemo={handleWorkbenchRunDemo}
             onSkip={handleWorkbenchSkip}

@@ -13,6 +13,8 @@ import {
   X,
   Loader2,
 } from "lucide-react";
+import AgentTrace from "@/components/AgentTrace";
+import type { AgentStep } from "@/lib/agents";
 
 export type WorkbenchMode = "explain" | "demo" | "brief";
 
@@ -56,6 +58,7 @@ const BRIEF_STEP_MS = 350;
 export interface PlanningWorkbenchOverlayProps {
   open: boolean;
   mode: WorkbenchMode;
+  agentSteps?: AgentStep[];
   onClose: () => void;
   onRunDemo?: () => void;
   onSkip?: () => void;
@@ -88,6 +91,7 @@ function LayerCard({
 export default function PlanningWorkbenchOverlay({
   open,
   mode,
+  agentSteps = [],
   onClose,
   onRunDemo,
   onSkip,
@@ -99,8 +103,13 @@ export default function PlanningWorkbenchOverlay({
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const completedRef = useRef(false);
 
-  const steps = mode === "brief" ? BRIEF_STEPS : DEMO_STEPS;
-  const stepMs = mode === "brief" ? BRIEF_STEP_MS : DEMO_STEP_MS;
+  // Demo mode now shows the REAL agent pipeline (AgentTrace); only the "brief"
+  // mode keeps the timed compile animation.
+  const steps = BRIEF_STEPS;
+  const stepMs = BRIEF_STEP_MS;
+  const agentsDone =
+    agentSteps.length > 0 &&
+    agentSteps.every((s) => s.status === "done" || s.status === "error");
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -120,15 +129,6 @@ export default function PlanningWorkbenchOverlay({
     }
   }, [clearTimer, mode, onComplete, steps.length]);
 
-  const skipAnimation = useCallback(() => {
-    if (completedRef.current) return;
-    completedRef.current = true;
-    clearTimer();
-    setActiveStep(steps.length);
-    setDone(true);
-    onSkip?.();
-  }, [clearTimer, onSkip, steps.length]);
-
   useEffect(() => {
     if (!open) {
       clearTimer();
@@ -138,7 +138,8 @@ export default function PlanningWorkbenchOverlay({
       return;
     }
 
-    if (mode === "explain") return;
+    // Only the brief-compile mode uses the timed animation now.
+    if (mode !== "brief") return;
 
     completedRef.current = false;
     setDone(false);
@@ -179,15 +180,20 @@ export default function PlanningWorkbenchOverlay({
   const title =
     mode === "brief"
       ? "Compiling siting evidence"
+      : mode === "demo"
+      ? "Reach siting agents at work"
       : "Reach Planning Workbench";
 
   const subtitle =
     mode === "brief"
       ? "Assembling the planning brief from prototype layers."
+      : mode === "demo"
+      ? "Five agents run the analysis live — computed numbers, then an AI brief."
       : "From scattered planning layers to one siting decision.";
 
-  const showFullLayout = mode !== "brief";
-  const showChecklist = mode !== "explain";
+  const showFullLayout = mode === "explain";
+  const showChecklist = mode === "brief";
+  const showAgents = mode === "demo";
   const allComplete = done || activeStep >= steps.length;
 
   return (
@@ -338,21 +344,34 @@ export default function PlanningWorkbenchOverlay({
                     );
                   })}
                 </ul>
+              </div>
+            )}
 
-                {allComplete && mode === "demo" && (
-                  <p className="mt-3 text-center text-[12px] font-semibold text-accent">
-                    Decision ready
-                  </p>
-                )}
-
-                {mode === "demo" && !allComplete && !reduceMotion && (
-                  <button
-                    onClick={skipAnimation}
-                    className="mt-3 w-full text-center text-[11px] text-white/40 underline-offset-2 transition hover:text-white/65 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-                  >
-                    Skip animation
-                  </button>
-                )}
+            {showAgents && (
+              <div className="mt-1">
+                <div className="max-h-[52vh] overflow-y-auto scroll-thin pr-1">
+                  {agentSteps.length > 0 ? (
+                    <AgentTrace steps={agentSteps} />
+                  ) : (
+                    <p className="py-6 text-center text-[12px] text-white/45">
+                      Starting the pipeline…
+                    </p>
+                  )}
+                </div>
+                <p className="mt-3 text-[10px] leading-snug text-white/35">
+                  Steps 1–4 are computed by the engine (⚙). Step 5 is an AI brief
+                  (✦) with a deterministic fallback when no key is set.
+                </p>
+                <button
+                  onClick={onComplete}
+                  className={`mt-3 flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
+                    agentsDone
+                      ? "bg-accent text-[#06281a] hover:bg-accent/90"
+                      : "bg-white/8 text-white/75 ring-1 ring-white/12 hover:bg-white/12"
+                  }`}
+                >
+                  {agentsDone ? "View decision" : "Skip to decision"}
+                </button>
               </div>
             )}
 
