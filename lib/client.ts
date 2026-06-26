@@ -140,7 +140,6 @@ export function rankGaps(data: ReachData, persona: PersonaKey): Gap[] {
     .sort((a, b) => b.severity - a.severity);
 }
 
-<<<<<<< Updated upstream
 /**
  * Pick the best gap for a guided demo: prefer education/healthcare with a
  * meaningful simulated access lift and at least one buildable candidate.
@@ -252,8 +251,6 @@ export function rankCandidates(
   });
 }
 
-/** District maximizing affectedPopulation + severity/50 for a category. */
-=======
 /** Per-category access "deficit" (Σ weight × (100 − category score)) for a district. */
 function categoryDeficits(cells: Cell[]): Record<CategoryKey, number> {
   const def = {} as Record<CategoryKey, number>;
@@ -274,7 +271,6 @@ function categoryDeficits(cells: Cell[]): Record<CategoryKey, number> {
  * surface different, sensible neighborhoods (people present + that service
  * specifically lacking) rather than always returning the all-around worst area.
  */
->>>>>>> Stashed changes
 export function worstDistrictForCategory(
   data: ReachData,
   persona: PersonaKey,
