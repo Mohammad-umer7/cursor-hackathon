@@ -9,6 +9,8 @@ import type { Parcel, ReachData, RecommendResult } from "@/lib/types";
 import {
   baselinePoint,
   candidateParcels,
+  pickDemoGap,
+  rankCandidates,
   rankGaps,
   simulatePlacement,
   targetForDistrict,
@@ -22,6 +24,8 @@ import LeftRail from "@/components/LeftRail";
 import Legend from "@/components/Legend";
 import Inspector from "@/components/Inspector";
 import IntroOverlay from "@/components/IntroOverlay";
+import DemoProgress, { type DemoStep } from "@/components/DemoProgress";
+import SitingBrief from "@/components/SitingBrief";
 
 const ALL_CATS = new Set<CategoryKey>(CATEGORIES.map((c) => c.key));
 
@@ -80,14 +84,15 @@ export default function Page() {
   const [facility, setFacility] = useState<{ lat: number; lng: number } | null>(
     null
   );
-  const [narration, setNarration] = useState("");
 
   const [asking, setAsking] = useState(false);
   const [showIntro, setShowIntro] = useState(true);
+  const [demoMode, setDemoMode] = useState(false);
+  const [demoStep, setDemoStep] = useState<DemoStep>(1);
+  const [showBrief, setShowBrief] = useState(false);
 
   const mapRef = useRef<MapHandle | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const narrationTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     fetch("/data/reach.json")
@@ -100,6 +105,17 @@ export default function Page() {
     () => (data ? rankGaps(data, persona) : []),
     [data, persona]
   );
+
+  const rankedCandidates = useMemo(() => {
+    if (!data || !gap) return [];
+    return rankCandidates(
+      data,
+      gap,
+      candidates,
+      aiResult?.recommended_parcel_id ?? null,
+      persona
+    );
+  }, [data, gap, candidates, aiResult, persona]);
 
   const cellTargets = useMemo(() => {
     if (!data) return {};
@@ -128,6 +144,7 @@ export default function Page() {
       setAiResult(null);
       setStreamText("");
       setAiSource(null);
+      if (demoMode) setDemoStep(2);
 
       const categoryLabel =
         CATEGORIES.find((c) => c.key === g.worst)?.label ?? g.worst;
@@ -190,6 +207,7 @@ export default function Page() {
               setAiSource(msg.source ?? null);
               setStreamText(result.rationale);
               setAiLoading(false);
+              if (demoMode) setDemoStep(3);
               const mid = {
                 lat: (base.lat + result.recommended_lat) / 2,
                 lng: (base.lng + result.recommended_lng) / 2,
@@ -204,7 +222,7 @@ export default function Page() {
         setAiLoading(false);
       }
     },
-    [data]
+    [data, demoMode]
   );
 
   const openTarget = useCallback(
@@ -219,8 +237,6 @@ export default function Page() {
       setSimulated(false);
       setSimResult(null);
       setFacility(null);
-      setNarration("");
-      if (narrationTimer.current) clearInterval(narrationTimer.current);
 
       mapRef.current?.flyTo(g.lng, g.lat, 12.8);
       runRecommend(g, cands, base);
@@ -248,8 +264,6 @@ export default function Page() {
       setSimulated(false);
       setSimResult(null);
       setFacility(null);
-      setNarration("");
-      if (narrationTimer.current) clearInterval(narrationTimer.current);
       if (gap && data) {
         const g = targetForDistrict(data, gap.district, p, gap.worst);
         setGap(g);
@@ -289,34 +303,18 @@ export default function Page() {
     setFacility(facilityPt);
     setSimulated(true);
     mapRef.current?.flyTo(facilityPt.lng, facilityPt.lat, 13.8);
-
-    // typewriter narration
-    const lift = (result.accessAfter - result.accessBefore).toFixed(1);
-    const sentence = `Placing this facility brings ${result.newReach.toLocaleString()} more residents within a comfortable walk — lifting ${gap.district}'s access score by ${lift} points.`;
-    if (narrationTimer.current) clearInterval(narrationTimer.current);
-    let n = 0;
-    setNarration("");
-    narrationTimer.current = setInterval(() => {
-      n += 2;
-      setNarration(sentence.slice(0, n));
-      if (n >= sentence.length && narrationTimer.current) {
-        clearInterval(narrationTimer.current);
-      }
-    }, 16);
-  }, [data, gap, aiResult, persona]);
+    if (demoMode) setDemoStep(4);
+  }, [data, gap, aiResult, persona, demoMode]);
 
   const handleReset = useCallback(() => {
     setSimulated(false);
     setSimResult(null);
     setFacility(null);
-    setNarration("");
-    if (narrationTimer.current) clearInterval(narrationTimer.current);
     if (gap) mapRef.current?.flyTo(gap.lng, gap.lat, 12.8);
   }, [gap]);
 
   const handleClose = useCallback(() => {
     if (abortRef.current) abortRef.current.abort();
-    if (narrationTimer.current) clearInterval(narrationTimer.current);
     setGap(null);
     setBaseline(null);
     setCandidates([]);
@@ -327,7 +325,6 @@ export default function Page() {
     setSimulated(false);
     setSimResult(null);
     setFacility(null);
-    setNarration("");
   }, []);
 
   const handleAsk = useCallback(
@@ -361,10 +358,24 @@ export default function Page() {
     [data, persona, openTarget]
   );
 
-  const handleIntroExample = useCallback(() => {
+  const runDemo = useCallback(() => {
+    if (!data) return;
     setShowIntro(false);
-    if (gaps.length > 0) handleSelectGap(gaps[0]);
-  }, [gaps, handleSelectGap]);
+    setDemoMode(true);
+    setDemoStep(1);
+    setShowBrief(false);
+    const g = pickDemoGap(data, persona, gaps);
+    if (g) openTarget(g);
+  }, [data, persona, gaps, openTarget]);
+
+  const handleIntroDemo = useCallback(() => {
+    runDemo();
+  }, [runDemo]);
+
+  const exitDemo = useCallback(() => {
+    setDemoMode(false);
+    setDemoStep(1);
+  }, []);
 
   if (!data) {
     return (
@@ -394,6 +405,11 @@ export default function Page() {
         }
         facility={facility}
         showAB={!!gap}
+        selectedGap={
+          gap
+            ? { district: gap.district, worst: gap.worst, access: gap.access }
+            : null
+        }
         onCellClick={handleCellClick}
         onLoaded={() => setMapLoaded(true)}
       />
@@ -412,13 +428,17 @@ export default function Page() {
         persona={persona}
         onPersona={handlePersona}
         onHelp={() => setShowIntro(true)}
+        onRunDemo={runDemo}
       />
+
+      {demoMode && <DemoProgress step={demoStep} onExit={exitDemo} />}
 
       <LeftRail
         activeCategories={activeCategories}
         onToggle={handleToggle}
         gaps={gaps}
         selectedDistrict={gap?.district ?? null}
+        selectedCategory={gap?.worst ?? null}
         onSelectGap={handleSelectGap}
         asking={asking}
         onAsk={handleAsk}
@@ -436,13 +456,14 @@ export default function Page() {
             aiResult={aiResult}
             aiSource={aiSource}
             streamText={streamText}
-            candidates={candidates}
+            rankedCandidates={rankedCandidates}
             simulated={simulated}
             simResult={simResult}
-            narration={narration}
+            highlightSimulate={!!aiResult && !simulated && !aiLoading}
             onSimulate={handleSimulate}
             onReset={handleReset}
             onClose={handleClose}
+            onOpenBrief={() => setShowBrief(true)}
           />
         )}
       </AnimatePresence>
@@ -462,8 +483,8 @@ export default function Page() {
           </div>
           <p className="text-[11.5px] leading-relaxed text-white/55">
             Click a red zone on the map, or pick from{" "}
-            <span className="text-white/80">Top gaps</span> to see where Reach AI
-            would build next.
+            <span className="text-white/80">Worst gaps to fix</span> to see where
+            Reach recommends building next.
           </p>
         </motion.div>
       )}
@@ -474,7 +495,7 @@ export default function Page() {
           <div className="glass flex items-center gap-2 rounded-full px-3.5 py-2 shadow-float">
             <MousePointerClick size={14} className="text-accent" />
             <span className="text-[11px] text-white/70">
-              Tap a red zone to see where to build next
+              Tap a red zone · or Run demo above
             </span>
           </div>
         </div>
@@ -482,17 +503,47 @@ export default function Page() {
 
       {/* provenance / honesty footer */}
       <div className="pointer-events-none absolute bottom-2 left-3 z-10 hidden max-w-[46%] text-[9.5px] leading-snug text-white/30 md:block">
-        Amenities: real OpenStreetMap data © OpenStreetMap contributors (ODbL).
-        Community, listing &amp; parcel figures: illustrative synthetic data for
-        this prototype.
+        Amenities: OpenStreetMap-derived © OpenStreetMap contributors (ODbL).
+        Community, listing &amp; parcel figures: illustrative prototype data.
       </div>
 
       <AnimatePresence>
         {showIntro && (
           <IntroOverlay
-            onExample={handleIntroExample}
+            onDemo={handleIntroDemo}
             onDismiss={() => setShowIntro(false)}
-            canExample={gaps.length > 0}
+            canDemo={gaps.length > 0}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showBrief && gap && aiResult && (
+          <SitingBrief
+            gap={gap}
+            persona={persona}
+            pick={
+              rankedCandidates.find((c) => c.selected)?.parcel ??
+              candidates.find((p) => p.id === aiResult.recommended_parcel_id) ??
+              null
+            }
+            aiResult={aiResult}
+            simResult={simResult}
+            priorityMatch={
+              (() => {
+                const o = (gap.opportunity || "").toLowerCase();
+                if (o.includes("school") || o.includes("educat"))
+                  return gap.worst === "education";
+                if (
+                  o.includes("clinic") ||
+                  o.includes("health") ||
+                  o.includes("medical")
+                )
+                  return gap.worst === "healthcare";
+                return false;
+              })()
+            }
+            onClose={() => setShowBrief(false)}
           />
         )}
       </AnimatePresence>

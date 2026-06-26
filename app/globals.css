@@ -74,6 +74,12 @@ body {
 }
 
 /* ---- Markers ---- */
+.site-pin-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
 .site-pin {
   width: 26px;
   height: 26px;
@@ -92,6 +98,25 @@ body {
   font-weight: 700;
   color: #fff;
   line-height: 1;
+}
+.site-pin-label {
+  font-size: 9.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  padding: 2px 7px;
+  border-radius: 999px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 4px 12px -4px rgba(0, 0, 0, 0.6);
+}
+.label-a {
+  background: rgba(239, 68, 68, 0.22);
+  color: #fca5a5;
+}
+.label-b {
+  background: rgba(61, 220, 151, 0.18);
+  color: #3ddc97;
 }
 .pin-a {
   background: #ef4444;
@@ -137,6 +162,31 @@ body {
   100% {
     transform: scale(2.4);
     opacity: 0;
+  }
+}
+
+@keyframes simulate-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(61, 220, 151, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(61, 220, 151, 0);
+  }
+}
+
+.simulate-cta-pulse {
+  animation: simulate-pulse 2.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .facility-dot .ring {
+    animation: none;
+    opacity: 0.5;
+  }
+  .simulate-cta-pulse {
+    animation: none;
+    box-shadow: 0 0 0 2px rgba(61, 220, 151, 0.5);
   }
 }
 

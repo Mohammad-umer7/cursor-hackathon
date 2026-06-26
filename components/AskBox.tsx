@@ -8,11 +8,7 @@ interface AskBoxProps {
   onAsk: (question: string) => void;
 }
 
-const SUGGESTIONS = [
-  "Where should the next school go?",
-  "Find the worst clinic gap",
-  "Where do we need a park?",
-];
+const SUGGESTIONS = ["Next school", "Next clinic", "New park"];
 
 export default function AskBox({ asking, onAsk }: AskBoxProps) {
   const [value, setValue] = useState("");
@@ -28,7 +24,7 @@ export default function AskBox({ asking, onAsk }: AskBoxProps) {
       <div className="mb-2 flex items-center gap-1.5">
         <Sparkles size={13} className="text-accent" />
         <span className="text-[11px] font-semibold uppercase tracking-wider text-white/55">
-          Ask Reach
+          Quick questions
         </span>
       </div>
 
@@ -45,7 +41,8 @@ export default function AskBox({ asking, onAsk }: AskBoxProps) {
         <button
           onClick={submit}
           disabled={asking}
-          className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-lg bg-accent/20 text-accent ring-1 ring-accent/35 transition hover:bg-accent/30 disabled:opacity-50"
+          aria-label="Submit question"
+          className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-lg bg-accent/20 text-accent ring-1 ring-accent/35 transition hover:bg-accent/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-50"
         >
           {asking ? (
             <Loader2 size={15} className="animate-spin" />
@@ -63,7 +60,7 @@ export default function AskBox({ asking, onAsk }: AskBoxProps) {
               setValue(s);
               if (!asking) onAsk(s);
             }}
-            className="rounded-full bg-white/5 px-2.5 py-1 text-[10.5px] text-white/55 ring-1 ring-white/8 transition hover:bg-white/10 hover:text-white/80"
+            className="rounded-full bg-white/5 px-2.5 py-1 text-[10.5px] text-white/55 ring-1 ring-white/8 transition hover:bg-white/10 hover:text-white/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
           >
             {s}
           </button>

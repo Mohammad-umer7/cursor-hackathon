@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Reach — AI siting copilot for Abu Dhabi",
   description:
-    "An AI siting copilot for urban access in Abu Dhabi: find access deserts and place the best buildable parcel.",
+    "Maps service-access gaps in Abu Dhabi, recommends a buildable parcel, and simulates estimated access improvement.",
 };
 
 export default function RootLayout({

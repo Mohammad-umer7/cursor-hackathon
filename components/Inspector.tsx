@@ -1,11 +1,23 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { X, Play, RotateCcw, Sparkles, MapPin, Check } from "lucide-react";
-import { CATEGORIES, PERSONAS, type CategoryKey, type PersonaKey } from "@/lib/engine";
-import type { Gap, SimResult } from "@/lib/client";
+import {
+  X,
+  Play,
+  RotateCcw,
+  Sparkles,
+  MapPin,
+  Check,
+  FileText,
+} from "lucide-react";
+import {
+  CATEGORIES,
+  PERSONAS,
+  type CategoryKey,
+  type PersonaKey,
+} from "@/lib/engine";
+import type { Gap, RankedCandidate, SimResult } from "@/lib/client";
 import type { RecommendResult, Parcel } from "@/lib/types";
-import CountUp from "./CountUp";
 
 const LABELS: Record<CategoryKey, string> = CATEGORIES.reduce((acc, c) => {
   acc[c.key] = c.label;
@@ -19,73 +31,22 @@ interface InspectorProps {
   aiResult: RecommendResult | null;
   aiSource: string | null;
   streamText: string;
-  candidates: Parcel[];
+  rankedCandidates: RankedCandidate[];
   simulated: boolean;
   simResult: SimResult | null;
-  narration: string;
+  highlightSimulate: boolean;
   onSimulate: () => void;
   onReset: () => void;
   onClose: () => void;
+  onOpenBrief: () => void;
 }
 
-function Ring({ score }: { score: number }) {
-  const r = 26;
-  const c = 2 * Math.PI * r;
-  const pct = Math.max(0, Math.min(100, score)) / 100;
-  const dash = c * pct;
-  const color =
-    score < 45 ? "#ef4444" : score < 65 ? "#f59e0b" : "#22c55e";
-  return (
-    <div className="relative flex h-[68px] w-[68px] items-center justify-center">
-      <svg width="68" height="68" className="-rotate-90">
-        <circle
-          cx="34"
-          cy="34"
-          r={r}
-          fill="none"
-          stroke="rgba(255,255,255,0.08)"
-          strokeWidth="6"
-        />
-        <motion.circle
-          cx="34"
-          cy="34"
-          r={r}
-          fill="none"
-          stroke={color}
-          strokeWidth="6"
-          strokeLinecap="round"
-          strokeDasharray={c}
-          initial={{ strokeDashoffset: c }}
-          animate={{ strokeDashoffset: c - dash }}
-          transition={{ duration: 0.9, ease: "easeOut" }}
-        />
-      </svg>
-      <div className="absolute flex flex-col items-center">
-        <span className="tnum text-[18px] font-bold leading-none text-white">
-          {Math.round(score)}
-        </span>
-        <span className="text-[7px] uppercase tracking-wider text-white/40">
-          access
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function confidenceColor(c: string): string {
-  if (c === "high") return "#22c55e";
-  if (c === "medium") return "#f59e0b";
-  return "#ef4444";
-}
-
-/** "expand_school_capacity" -> "Expand school capacity". */
 function humanizeOpportunity(s: string): string {
   if (!s) return "";
   const spaced = s.replace(/_/g, " ").trim();
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
-/** Map a dataset opportunity string to one of the six categories, or null. */
 function opportunityToCategory(s: string): CategoryKey | null {
   const o = (s || "").toLowerCase();
   if (!o) return null;
@@ -116,6 +77,41 @@ function opportunityToCategory(s: string): CategoryKey | null {
   return null;
 }
 
+function StepHeader({ n, title }: { n: number; title: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="flex h-5 w-5 items-center justify-center rounded-md bg-white/8 text-[10px] font-bold text-white/60 ring-1 ring-white/10">
+        {n}
+      </span>
+      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-white/55">
+        {title}
+      </h3>
+    </div>
+  );
+}
+
+function ScoreChip({
+  label,
+  value,
+  ok,
+}: {
+  label: string;
+  value: string;
+  ok?: boolean;
+}) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium ring-1 ${
+        ok
+          ? "bg-accent/10 text-accent ring-accent/25"
+          : "bg-white/5 text-white/65 ring-white/10"
+      }`}
+    >
+      <span className="text-white/45">{label}:</span> {value}
+    </span>
+  );
+}
+
 export default function Inspector({
   gap,
   persona,
@@ -123,26 +119,28 @@ export default function Inspector({
   aiResult,
   aiSource,
   streamText,
-  candidates,
+  rankedCandidates,
   simulated,
   simResult,
-  narration,
+  highlightSimulate,
   onSimulate,
   onReset,
   onClose,
+  onOpenBrief,
 }: InspectorProps) {
   const categoryLabel = LABELS[gap.worst];
   const personaLabel =
-    PERSONAS.find((p) => p.key === persona)?.label.toLowerCase() ?? persona;
+    PERSONAS.find((p) => p.key === persona)?.label ?? persona;
   const displayScore =
-    simulated && simResult ? simResult.accessAfter : gap.access;
+    simulated && simResult ? Math.round(simResult.accessAfter) : gap.access;
 
   const pick = aiResult
-    ? candidates.find((p) => p.id === aiResult.recommended_parcel_id)
+    ? rankedCandidates.find((c) => c.selected)?.parcel ??
+      rankedCandidates[0]?.parcel
     : null;
 
   const flaggedCategory = opportunityToCategory(gap.opportunity);
-  const crossCheckMatches =
+  const priorityMatch =
     flaggedCategory !== null && flaggedCategory === gap.worst;
 
   return (
@@ -153,277 +151,302 @@ export default function Inspector({
       transition={{ type: "spring", stiffness: 320, damping: 34 }}
       className="glass-strong pointer-events-auto absolute right-4 top-4 bottom-4 z-30 flex w-[380px] flex-col rounded-2xl shadow-float"
     >
-      {/* Header */}
-      <div className="flex items-start gap-3 border-b border-white/8 p-4">
-        <Ring score={displayScore} />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[16px] font-bold text-white">
-            {gap.district}
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5">
-            <span className="rounded-md bg-gap-bad/15 px-1.5 py-0.5 text-[10px] font-medium text-gap-bad ring-1 ring-gap-bad/25">
-              weak: {categoryLabel}
-            </span>
-            <span className="tnum text-[10.5px] text-white/45">
-              demand {gap.demand}/100
-            </span>
-          </div>
+      <div className="flex items-center justify-between border-b border-white/8 p-4">
+        <div>
+          <div className="text-[15px] font-bold text-white">{gap.district}</div>
+          <div className="text-[10.5px] text-white/45">Decision sequence</div>
         </div>
         <button
           onClick={onClose}
-          className="rounded-lg p-1.5 text-white/45 transition hover:bg-white/8 hover:text-white"
+          className="rounded-lg p-1.5 text-white/45 transition hover:bg-white/8 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          aria-label="Close inspector"
         >
           <X size={16} />
         </button>
       </div>
 
-      <div className="scroll-thin flex-1 space-y-4 overflow-y-auto p-4">
-        {/* Diagnosis */}
-        <p className="text-[12.5px] leading-relaxed text-white/65">
-          About{" "}
-          <span className="font-semibold text-white">
-            {gap.affectedPopulation.toLocaleString()}
-          </span>{" "}
-          residents in {gap.district} fall outside a comfortable walk of{" "}
-          <span className="font-semibold text-white">
-            {categoryLabel.toLowerCase()}
-          </span>
-          . With a service-demand index of{" "}
-          <span className="font-semibold text-white">{gap.demand}</span>/100,
-          this is a priority {categoryLabel.toLowerCase()} desert for the{" "}
-          {personaLabel} persona.
-        </p>
+      <div className="scroll-thin flex-1 space-y-5 overflow-y-auto p-4">
+        {/* Step 1 */}
+        <section className="space-y-2">
+          <StepHeader n={1} title="Access gap found" />
+          <p className="text-[12.5px] leading-relaxed text-white/70">
+            This district has weak walk access to{" "}
+            <span className="font-semibold text-white">
+              {categoryLabel.toLowerCase()}
+            </span>{" "}
+            for the{" "}
+            <span className="font-semibold text-white">{personaLabel}</span>{" "}
+            persona.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <ScoreChip label="Access" value={`${displayScore}/100`} />
+            <ScoreChip label="Demand" value={`${gap.demand}/100`} />
+            <ScoreChip
+              label="Underserved demand"
+              value={`${gap.affectedPopulation.toLocaleString()} units`}
+            />
+          </div>
+        </section>
 
-        {/* Community signals */}
-        <div className="grid grid-cols-3 gap-2">
-          <div className="rounded-lg bg-white/5 p-2 ring-1 ring-white/8">
-            <div className="tnum text-[14px] font-bold text-white">
-              {gap.residentExperience}
-              <span className="text-[9px] font-normal text-white/35">/100</span>
+        {/* Step 2 */}
+        <section className="space-y-2">
+          <StepHeader n={2} title="Naive baseline" />
+          <div className="rounded-xl bg-gap-bad/8 p-3 ring-1 ring-gap-bad/20">
+            <div className="mb-2 flex items-center gap-1.5">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-gap-bad text-[9px] font-bold text-white">
+                A
+              </span>
+              <span className="text-[12px] font-semibold text-gap-bad">
+                Nearest-point math
+              </span>
             </div>
-            <div className="text-[9px] leading-tight text-white/45">
-              Resident experience
-            </div>
+            <ul className="space-y-1 text-[10.5px] text-white/55">
+              <li>• Finds the closest point</li>
+              <li>• Not parcel-aware</li>
+              <li>• No zoning/buildability check</li>
+            </ul>
           </div>
-          <div className="rounded-lg bg-white/5 p-2 ring-1 ring-white/8">
-            <div className="tnum text-[14px] font-bold text-white">
-              {gap.mobility}
-              <span className="text-[9px] font-normal text-white/35">/100</span>
-            </div>
-            <div className="text-[9px] leading-tight text-white/45">
-              Mobility
-            </div>
-          </div>
-          <div className="rounded-lg bg-white/5 p-2 ring-1 ring-white/8">
-            <div className="truncate text-[11px] font-semibold leading-tight text-white">
-              {humanizeOpportunity(gap.opportunity) || "—"}
-            </div>
-            <div className="text-[9px] leading-tight text-white/45">
-              Flagged priority
-            </div>
-          </div>
-        </div>
+        </section>
 
-        {/* Baseline vs Reach AI */}
-        <div>
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-white/50">
-            Baseline vs Reach AI
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-xl bg-gap-bad/8 p-2.5 ring-1 ring-gap-bad/20">
-              <div className="mb-1 flex items-center gap-1.5">
-                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-gap-bad text-[9px] font-bold text-white">
-                  A
-                </span>
-                <span className="text-[11px] font-semibold text-gap-bad">
-                  Baseline
-                </span>
-              </div>
-              <p className="text-[10px] leading-snug text-white/45">
-                Nearest-distance math. Ignores whether you can build there.
-              </p>
+        {/* Step 3 */}
+        <section className="space-y-2">
+          <StepHeader n={3} title="Reach AI recommendation" />
+          <div className="rounded-xl bg-accent/8 p-3 ring-1 ring-accent/25">
+            <div className="mb-2 flex items-center gap-1.5">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent text-[9px] font-bold text-[#06281a]">
+                B
+              </span>
+              <span className="text-[12px] font-semibold text-accent">
+                Real candidate parcel
+              </span>
             </div>
-            <div className="rounded-xl bg-accent/8 p-2.5 ring-1 ring-accent/25">
-              <div className="mb-1 flex items-center gap-1.5">
-                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-accent text-[9px] font-bold text-[#06281a]">
-                  B
-                </span>
-                <span className="text-[11px] font-semibold text-accent">
-                  Reach AI
-                </span>
-              </div>
-              <p className="text-[10px] leading-snug text-white/45">
-                Real buildable parcel, zoning-aware.
-              </p>
-            </div>
-          </div>
-        </div>
 
-        {/* AI rationale */}
-        {aiLoading ? (
-          <div>
-            <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-accent">
-              <Sparkles size={12} className="animate-pulse" />
-              Reach AI is siting the facility…
-            </div>
-            {streamText ? (
-              <p className="text-[12px] leading-relaxed text-white/70">
-                {streamText}
-                <span className="ml-0.5 inline-block h-3 w-[2px] animate-pulse bg-accent align-middle" />
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {[90, 80, 95, 60].map((w, i) => (
-                  <div
-                    key={i}
-                    className="h-3 rounded animate-shimmer"
-                    style={{
-                      width: `${w}%`,
-                      background:
-                        "linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.12) 50%, rgba(255,255,255,0.04) 100%)",
-                      backgroundSize: "200% 100%",
-                    }}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        ) : (
-          aiResult && (
-            <div className="space-y-3">
-              {/* parcel chip */}
-              {pick && (
-                <div className="flex items-center gap-2.5 rounded-xl bg-white/5 p-2.5 ring-1 ring-white/8">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/15 text-accent ring-1 ring-accent/25">
-                    <MapPin size={15} />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[12px] font-semibold text-white">
-                      {pick.id}
-                    </div>
-                    <div className="truncate text-[10px] text-white/45">
-                      {pick.status.replace(/_/g, " ")} ·{" "}
-                      {pick.land_use.replace(/_/g, " ")} ·{" "}
-                      {Math.round(pick.size).toLocaleString()} m²
-                    </div>
-                  </div>
-                  <span
-                    className="rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ring-1"
-                    style={{
-                      color: confidenceColor(aiResult.confidence),
-                      borderColor: confidenceColor(aiResult.confidence) + "55",
-                    }}
-                  >
-                    {aiResult.confidence}
-                  </span>
-                </div>
-              )}
-
-              {/* rationale */}
+            {aiLoading ? (
               <div>
-                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-white/45">
-                  Rationale
+                <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-accent">
+                  <Sparkles size={12} className="animate-pulse" />
+                  Evaluating buildable parcels…
                 </div>
-                <p className="text-[12px] leading-relaxed text-white/70">
-                  {streamText || aiResult.rationale}
-                </p>
-                {/* cross-check against the dataset's own flagged priority */}
-                {crossCheckMatches ? (
-                  <div className="mt-1.5 flex items-center gap-1 text-[10.5px] font-medium text-gap-good">
-                    <Check size={12} />
-                    Matches the community&apos;s own flagged priority.
-                  </div>
-                ) : (
-                  <p className="mt-1.5 text-[10px] leading-snug text-white/40">
-                    Reach is targeting {categoryLabel}; the dataset&apos;s
-                    flagged priority is{" "}
-                    {humanizeOpportunity(gap.opportunity) || "not specified"}.
+                {streamText ? (
+                  <p className="text-[11px] leading-relaxed text-white/60">
+                    {streamText}
+                    <span className="ml-0.5 inline-block h-3 w-[2px] animate-pulse bg-accent align-middle" />
                   </p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {[90, 75, 85].map((w, i) => (
+                      <div
+                        key={i}
+                        className="h-2.5 rounded animate-shimmer"
+                        style={{
+                          width: `${w}%`,
+                          background:
+                            "linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.12) 50%, rgba(255,255,255,0.04) 100%)",
+                          backgroundSize: "200% 100%",
+                        }}
+                      />
+                    ))}
+                  </div>
                 )}
               </div>
+            ) : (
+              aiResult && (
+                <div className="space-y-3">
+                  {pick && (
+                    <div className="flex items-center gap-2 rounded-lg bg-white/5 p-2 ring-1 ring-white/8">
+                      <MapPin size={14} className="shrink-0 text-accent" />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[11px] font-semibold text-white">
+                          {pick.id}
+                        </div>
+                        <div className="truncate text-[10px] text-white/45">
+                          {humanizeOpportunity(pick.land_use)} ·{" "}
+                          {pick.zone} · {Math.round(pick.size).toLocaleString()}{" "}
+                          m²
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
-              {/* why better */}
-              <div className="rounded-xl bg-accent/8 p-2.5 ring-1 ring-accent/20">
-                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-accent/80">
-                  Why it beats the baseline
-                </div>
-                <p className="text-[11.5px] leading-relaxed text-white/70">
-                  {aiResult.why_better_than_baseline}
-                </p>
-              </div>
+                  <div>
+                    <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/45">
+                      Why this parcel wins
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      <ScoreChip label="Buildability" value="Pass" ok />
+                      <ScoreChip
+                        label="Zoning fit"
+                        value={pick ? humanizeOpportunity(pick.land_use) : "—"}
+                        ok
+                      />
+                      {pick && (
+                        <>
+                          <ScoreChip
+                            label="Infrastructure"
+                            value={`${pick.infra}/100`}
+                          />
+                          <ScoreChip
+                            label="Potential"
+                            value={`${pick.potential}/100`}
+                          />
+                        </>
+                      )}
+                      <ScoreChip
+                        label="Demand alignment"
+                        value={categoryLabel}
+                        ok
+                      />
+                      <ScoreChip
+                        label="Priority match"
+                        value={priorityMatch ? "Yes" : "No"}
+                        ok={priorityMatch}
+                      />
+                    </div>
+                  </div>
 
-              {aiSource && aiSource !== "groq" && (
-                <div className="flex items-center gap-1.5">
-                  <span className="inline-flex items-center gap-1 rounded-full bg-white/8 px-2 py-0.5 text-[9px] font-medium uppercase tracking-wide text-white/50 ring-1 ring-white/12">
-                    <span className="h-1.5 w-1.5 rounded-full bg-white/40" />
-                    Demo mode
-                  </span>
-                  <span className="text-[9.5px] text-white/35">
-                    Deterministic siting — add a key for live AI rationale.
-                  </span>
-                </div>
-              )}
-            </div>
-          )
-        )}
+                  {streamText && (
+                    <p className="text-[11px] leading-relaxed text-white/60">
+                      {streamText}
+                    </p>
+                  )}
 
-        {/* Engine-computed impact */}
-        {simulated && simResult && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-3"
-          >
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-white/50">
-              Engine-computed impact
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-xl bg-accent/10 p-3 ring-1 ring-accent/20">
-                <div className="tnum text-[20px] font-bold text-accent">
-                  +<CountUp value={simResult.newReach} />
+                  {priorityMatch && (
+                    <div className="flex items-center gap-1 text-[10px] font-medium text-gap-good">
+                      <Check size={12} />
+                      Matches community flagged priority
+                    </div>
+                  )}
+
+                  {aiSource && aiSource !== "groq" && (
+                    <p className="text-[9.5px] text-white/35">
+                      Deterministic siting — add a Groq key for live AI rationale.
+                    </p>
+                  )}
                 </div>
-                <div className="text-[10px] leading-snug text-white/50">
-                  residents newly in reach
-                </div>
-              </div>
-              <div className="rounded-xl bg-white/5 p-3 ring-1 ring-white/8">
-                <div className="tnum text-[15px] font-bold text-white">
-                  <CountUp value={simResult.accessBefore} decimals={1} /> →{" "}
-                  <span className="text-accent">
-                    <CountUp value={simResult.accessAfter} decimals={1} />
-                  </span>
-                </div>
-                <div className="text-[10px] leading-snug text-white/50">
-                  district access score
-                </div>
-              </div>
-            </div>
-            {narration && (
-              <p className="text-[12px] leading-relaxed text-accent/90">
-                {narration}
-              </p>
+              )
             )}
-          </motion.div>
-        )}
+          </div>
+
+          {rankedCandidates.length > 0 && !aiLoading && (
+            <div className="mt-2">
+              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/45">
+                Candidate ranking
+              </div>
+              <div className="space-y-1">
+                {rankedCandidates.map((c) => (
+                  <div
+                    key={c.parcel.id}
+                    className={`rounded-lg px-2.5 py-1.5 text-[10.5px] ring-1 ${
+                      c.selected
+                        ? "bg-accent/8 text-white/80 ring-accent/25"
+                        : "bg-white/3 text-white/50 ring-white/8"
+                    }`}
+                  >
+                    <span className="tnum font-semibold text-white/70">
+                      {c.rank}.
+                    </span>{" "}
+                    <span className="font-medium">{c.parcel.id}</span>
+                    <span className="text-white/40"> — </span>
+                    <span
+                      className={
+                        c.selected ? "text-accent" : "text-white/45"
+                      }
+                    >
+                      {c.selected ? "Selected" : "Rejected"}
+                    </span>
+                    <span className="text-white/35"> — {c.reason}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* Step 4 */}
+        <section className="space-y-2">
+          <StepHeader n={4} title="Simulate impact" />
+          {simulated && simResult ? (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="rounded-xl bg-white/5 p-3 ring-1 ring-white/8"
+            >
+              <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-white/45">
+                Estimated impact
+              </div>
+              <div className="space-y-1.5 text-[11px] text-white/70">
+                <div>
+                  Access score:{" "}
+                  <span className="tnum text-white">
+                    {simResult.accessBefore.toFixed(1)}
+                  </span>{" "}
+                  →{" "}
+                  <span className="tnum font-semibold text-accent">
+                    {simResult.accessAfter.toFixed(1)}
+                  </span>
+                </div>
+                <div>
+                  Change:{" "}
+                  <span className="tnum text-accent">
+                    +
+                    {(simResult.accessAfter - simResult.accessBefore).toFixed(1)}
+                  </span>
+                </div>
+                <div>
+                  Improved cells:{" "}
+                  <span className="tnum text-white">
+                    {simResult.affectedCellIds.length}
+                  </span>
+                </div>
+                <div>
+                  Affected demand:{" "}
+                  <span className="tnum text-white">
+                    {simResult.newReach.toLocaleString()}
+                  </span>{" "}
+                  weighted units
+                </div>
+                <div>Category improved: {categoryLabel}</div>
+                <div>Persona: {personaLabel}</div>
+              </div>
+              <p className="mt-2 text-[9.5px] text-white/35">
+                Estimated from the prototype dataset
+              </p>
+            </motion.div>
+          ) : (
+            <p className="text-[11px] text-white/45">
+              Simulate building on the recommended parcel to see estimated access
+              improvement on the map.
+            </p>
+          )}
+        </section>
       </div>
 
-      {/* Actions */}
-      <div className="border-t border-white/8 p-4">
+      <div className="space-y-2 border-t border-white/8 p-4">
         {!simulated ? (
           <button
             onClick={onSimulate}
             disabled={!aiResult}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent py-2.5 text-[13px] font-semibold text-[#06281a] transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/40"
+            className={`flex w-full items-center justify-center gap-2 rounded-xl bg-accent py-2.5 text-[13px] font-semibold text-[#06281a] transition hover:bg-accent/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/40 ${
+              highlightSimulate && aiResult ? "simulate-cta-pulse" : ""
+            }`}
           >
-            <Play size={15} /> Simulate placement
+            <Play size={15} /> Simulate building here
           </button>
         ) : (
-          <button
-            onClick={onReset}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-white/8 py-2.5 text-[13px] font-semibold text-white/80 ring-1 ring-white/12 transition hover:bg-white/12"
-          >
-            <RotateCcw size={15} /> Reset simulation
-          </button>
+          <>
+            <button
+              onClick={onOpenBrief}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent py-2.5 text-[13px] font-semibold text-[#06281a] transition hover:bg-accent/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+            >
+              <FileText size={15} /> Generate siting brief
+            </button>
+            <button
+              onClick={onReset}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-white/8 py-2 text-[12px] font-semibold text-white/70 ring-1 ring-white/12 transition hover:bg-white/12 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+            >
+              <RotateCcw size={14} /> Reset simulation
+            </button>
+          </>
         )}
       </div>
     </motion.div>

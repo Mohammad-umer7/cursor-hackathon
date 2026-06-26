@@ -4,30 +4,27 @@ import { motion } from "framer-motion";
 import { Map as MapIcon, MousePointerClick, Play, X } from "lucide-react";
 
 interface IntroOverlayProps {
-  onExample: () => void;
+  onDemo: () => void;
   onDismiss: () => void;
-  canExample: boolean;
+  canDemo: boolean;
 }
 
 const STEPS = [
-  {
-    icon: MapIcon,
-    text: "Red = underserved, green = a 15-minute walk to essentials.",
-  },
+  { icon: MapIcon, text: "Red = hard to reach essentials" },
   {
     icon: MousePointerClick,
-    text: "Click a red zone on the map (or a district in Top access gaps).",
+    text: "Reach compares naive distance math vs. a real parcel",
   },
   {
     icon: Play,
-    text: "See the AI's site pick vs. naive distance-math, then hit Simulate to watch the gap heal.",
+    text: "Simulate the build and generate a siting brief",
   },
 ];
 
 export default function IntroOverlay({
-  onExample,
+  onDemo,
   onDismiss,
-  canExample,
+  canDemo,
 }: IntroOverlayProps) {
   return (
     <motion.div
@@ -45,18 +42,18 @@ export default function IntroOverlay({
       >
         <button
           onClick={onDismiss}
-          className="absolute right-4 top-4 rounded-lg p-1.5 text-white/40 transition hover:bg-white/8 hover:text-white"
+          className="absolute right-4 top-4 rounded-lg p-1.5 text-white/40 transition hover:bg-white/8 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
           aria-label="Close"
         >
           <X size={16} />
         </button>
 
         <h2 className="pr-8 text-[19px] font-bold leading-tight text-white">
-          Reach — where should Abu Dhabi build next?
+          Where should Abu Dhabi build next?
         </h2>
         <p className="mt-2 text-[12.5px] leading-relaxed text-white/60">
-          We map where residents can&apos;t reach essential services on foot —
-          then AI picks the real parcel to build on to fix the gap.
+          Reach finds service-access deserts, chooses a real parcel, and
+          simulates how much the gap improves.
         </p>
 
         <div className="mt-5 space-y-2.5">
@@ -76,23 +73,23 @@ export default function IntroOverlay({
         </div>
 
         <p className="mt-5 text-[10.5px] leading-snug text-white/35">
-          Amenities are real OpenStreetMap data. Community and parcel figures are
-          illustrative.
+          Amenities are OpenStreetMap-derived. Community and parcel figures are
+          illustrative for this prototype.
         </p>
 
         <div className="mt-5 flex flex-col gap-2 sm:flex-row">
           <button
-            onClick={onExample}
-            disabled={!canExample}
-            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-accent py-2.5 text-[13px] font-semibold text-[#06281a] transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/40"
+            onClick={onDemo}
+            disabled={!canDemo}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-accent py-2.5 text-[13px] font-semibold text-[#06281a] transition hover:bg-accent/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/40"
           >
-            Show me an example →
+            Run 60-second demo
           </button>
           <button
             onClick={onDismiss}
-            className="flex-1 rounded-xl bg-white/8 py-2.5 text-[13px] font-semibold text-white/80 ring-1 ring-white/12 transition hover:bg-white/12"
+            className="flex-1 rounded-xl bg-white/8 py-2.5 text-[13px] font-semibold text-white/80 ring-1 ring-white/12 transition hover:bg-white/12 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
           >
-            Explore on my own
+            Explore manually
           </button>
         </div>
       </motion.div>

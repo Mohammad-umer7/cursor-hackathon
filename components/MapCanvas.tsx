@@ -7,7 +7,7 @@ import {
   useRef,
 } from "react";
 import maplibregl from "maplibre-gl";
-import { accessColor, type CategoryKey } from "@/lib/engine";
+import { accessColor, CATEGORIES, type CategoryKey } from "@/lib/engine";
 import { amenitiesFC, hexFC, lineFC } from "@/lib/geo";
 import type { ReachData } from "@/lib/types";
 
@@ -23,6 +23,12 @@ interface LatLng {
   lng: number;
 }
 
+interface SelectedGapInfo {
+  district: string;
+  worst: CategoryKey;
+  access: number;
+}
+
 interface MapCanvasProps {
   data: ReachData;
   activeCategories: Set<CategoryKey>;
@@ -31,6 +37,7 @@ interface MapCanvasProps {
   aiPick: LatLng | null;
   facility: LatLng | null;
   showAB: boolean;
+  selectedGap: SelectedGapInfo | null;
   onCellClick: (district: string) => void;
   onLoaded: () => void;
 }
@@ -46,6 +53,7 @@ const MapCanvas = forwardRef<MapHandle, MapCanvasProps>(function MapCanvas(
     aiPick,
     facility,
     showAB,
+    selectedGap,
     onCellClick,
     onLoaded,
   },
@@ -326,23 +334,36 @@ const MapCanvas = forwardRef<MapHandle, MapCanvasProps>(function MapCanvas(
     for (const m of markersRef.current) m.remove();
     markersRef.current = [];
 
+    const makePin = (
+      cls: string,
+      letter: string,
+      label: string,
+      labelCls: string
+    ) => {
+      const wrap = document.createElement("div");
+      wrap.className = "site-pin-wrap";
+      const pin = document.createElement("div");
+      pin.className = `site-pin ${cls}`;
+      pin.innerHTML = `<span>${letter}</span>`;
+      const lbl = document.createElement("div");
+      lbl.className = `site-pin-label ${labelCls}`;
+      lbl.textContent = label;
+      wrap.appendChild(pin);
+      wrap.appendChild(lbl);
+      return wrap;
+    };
+
     if (showAB && baseline) {
-      const el = document.createElement("div");
-      el.className = "site-pin pin-a";
-      el.innerHTML = "<span>A</span>";
       markersRef.current.push(
-        new maplibregl.Marker({ element: el, anchor: "bottom" })
+        new maplibregl.Marker({ element: makePin("pin-a", "A", "Naive nearest point", "label-a"), anchor: "bottom" })
           .setLngLat([baseline.lng, baseline.lat])
           .addTo(map)
       );
     }
 
     if (showAB && aiPick) {
-      const el = document.createElement("div");
-      el.className = "site-pin pin-b";
-      el.innerHTML = "<span>B</span>";
       markersRef.current.push(
-        new maplibregl.Marker({ element: el, anchor: "bottom" })
+        new maplibregl.Marker({ element: makePin("pin-b", "B", "Reach parcel", "label-b"), anchor: "bottom" })
           .setLngLat([aiPick.lng, aiPick.lat])
           .addTo(map)
       );
@@ -369,8 +390,30 @@ const MapCanvas = forwardRef<MapHandle, MapCanvasProps>(function MapCanvas(
     }
   }, [baseline, aiPick, facility, showAB]);
 
+  const worstLabel =
+    selectedGap &&
+    (CATEGORIES.find((c) => c.key === selectedGap.worst)?.label ??
+      selectedGap.worst);
+
   return (
-    <div ref={containerRef} className="absolute inset-0 h-full w-full" />
+    <>
+      <div ref={containerRef} className="absolute inset-0 h-full w-full" />
+      {selectedGap && worstLabel && (
+        <div className="pointer-events-none absolute left-1/2 top-[132px] z-20 -translate-x-1/2 sm:left-auto sm:right-[400px] sm:translate-x-0">
+          <div className="glass rounded-xl px-3 py-2 shadow-float">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-accent">
+              Selected access desert
+            </div>
+            <div className="mt-0.5 text-[11px] text-white/80">
+              Weakest: {worstLabel}
+            </div>
+            <div className="tnum text-[11px] text-white/55">
+              Score: {selectedGap.access}/100
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 });
 

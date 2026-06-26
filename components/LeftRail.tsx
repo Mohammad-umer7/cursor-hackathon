@@ -1,6 +1,7 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   HeartPulse,
   GraduationCap,
@@ -8,12 +9,12 @@ import {
   Trees,
   Bus,
   Landmark,
+  ChevronDown,
+  Target,
   type LucideIcon,
 } from "lucide-react";
-import {
-  CATEGORIES,
-  type CategoryKey,
-} from "@/lib/engine";
+import { CATEGORIES, type CategoryKey } from "@/lib/engine";
+import { categoryGapLabel } from "@/lib/copy";
 import type { Gap } from "@/lib/client";
 import AskBox from "./AskBox";
 
@@ -36,6 +37,7 @@ interface LeftRailProps {
   onToggle: (key: CategoryKey) => void;
   gaps: Gap[];
   selectedDistrict: string | null;
+  selectedCategory: CategoryKey | null;
   onSelectGap: (gap: Gap) => void;
   asking: boolean;
   onAsk: (question: string) => void;
@@ -52,54 +54,42 @@ export default function LeftRail({
   onToggle,
   gaps,
   selectedDistrict,
+  selectedCategory,
   onSelectGap,
   asking,
   onAsk,
 }: LeftRailProps) {
+  const [filtersOpen, setFiltersOpen] = useState(
+    typeof window !== "undefined" ? window.innerWidth >= 1024 : true
+  );
+
+  const taskText =
+    selectedDistrict && selectedCategory
+      ? `Fix ${LABELS[selectedCategory].toLowerCase()} access in ${selectedDistrict}.`
+      : "Find the best parcel for the next essential facility.";
+
   return (
-    <div className="pointer-events-none absolute left-4 top-[88px] bottom-4 z-20 flex w-[300px] flex-col gap-3">
-      {/* Essential layers */}
+    <div className="pointer-events-none absolute left-4 top-[100px] bottom-4 z-20 flex w-[300px] flex-col gap-3">
+      {/* Current task */}
       <div className="glass pointer-events-auto rounded-2xl p-3 shadow-float">
-        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-white/55">
-          Essential layers
+        <div className="mb-1.5 flex items-center gap-1.5 text-accent">
+          <Target size={13} />
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-white/55">
+            Current task
+          </span>
         </div>
-        <div className="grid grid-cols-3 gap-1.5">
-          {CATEGORIES.map((c) => {
-            const Icon = ICONS[c.key];
-            const active = activeCategories.has(c.key);
-            return (
-              <button
-                key={c.key}
-                onClick={() => onToggle(c.key)}
-                className={`flex flex-col items-center gap-1 rounded-xl px-1 py-2 text-[10px] font-medium ring-1 transition ${
-                  active
-                    ? "bg-white/8 ring-white/12"
-                    : "bg-transparent ring-white/5 opacity-45 hover:opacity-70"
-                }`}
-              >
-                <span style={{ color: active ? c.color : "#9aa6b8" }}>
-                  <Icon size={17} />
-                </span>
-                <span
-                  className={active ? "text-white/85" : "text-white/45"}
-                >
-                  {LABELS[c.key]}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+        <p className="text-[12px] leading-snug text-white/75">{taskText}</p>
       </div>
 
-      {/* Top access gaps */}
+      {/* Worst gaps */}
       <div className="glass pointer-events-auto flex min-h-0 flex-1 flex-col rounded-2xl p-3 shadow-float">
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-white/55">
-          Top access gaps
+          Worst gaps to fix
         </div>
         <div className="scroll-thin -mr-1 flex-1 space-y-1.5 overflow-y-auto pr-1">
           {gaps.slice(0, 10).map((gap, i) => {
             const selected = gap.district === selectedDistrict;
-            const worstLabel = LABELS[gap.worst];
+            const gapLabel = categoryGapLabel(gap.worst);
             return (
               <motion.button
                 key={gap.district}
@@ -107,7 +97,7 @@ export default function LeftRail({
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: i * 0.035, duration: 0.25 }}
                 onClick={() => onSelectGap(gap)}
-                className={`flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left ring-1 transition ${
+                className={`flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left ring-1 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${
                   selected
                     ? "bg-accent/12 ring-accent/35"
                     : "bg-white/4 ring-white/6 hover:bg-white/7"
@@ -121,8 +111,8 @@ export default function LeftRail({
                     {gap.district}
                   </span>
                   <span className="block truncate text-[10px] text-white/45">
-                    weak: {worstLabel} ·{" "}
-                    {gap.affectedPopulation.toLocaleString()} underserved
+                    {gapLabel} · demand{" "}
+                    {gap.affectedPopulation.toLocaleString()} units
                   </span>
                 </span>
                 <span className="shrink-0 text-right">
@@ -142,7 +132,63 @@ export default function LeftRail({
         </div>
       </div>
 
-      {/* Ask Reach */}
+      {/* Collapsible map filters */}
+      <div className="glass pointer-events-auto rounded-2xl shadow-float">
+        <button
+          onClick={() => setFiltersOpen((o) => !o)}
+          className="flex w-full items-center justify-between rounded-2xl px-3 py-2.5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          aria-expanded={filtersOpen}
+        >
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-white/55">
+            Map filters
+          </span>
+          <ChevronDown
+            size={14}
+            className={`text-white/40 transition-transform ${
+              filtersOpen ? "rotate-180" : ""
+            }`}
+          />
+        </button>
+        <AnimatePresence initial={false}>
+          {filtersOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden"
+            >
+              <div className="grid grid-cols-3 gap-1.5 px-3 pb-3">
+                {CATEGORIES.map((c) => {
+                  const Icon = ICONS[c.key];
+                  const active = activeCategories.has(c.key);
+                  return (
+                    <button
+                      key={c.key}
+                      onClick={() => onToggle(c.key)}
+                      className={`flex flex-col items-center gap-1 rounded-xl px-1 py-2 text-[10px] font-medium ring-1 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${
+                        active
+                          ? "bg-white/8 ring-white/12"
+                          : "bg-transparent ring-white/5 opacity-45 hover:opacity-70"
+                      }`}
+                    >
+                      <span style={{ color: active ? c.color : "#9aa6b8" }}>
+                        <Icon size={17} />
+                      </span>
+                      <span
+                        className={active ? "text-white/85" : "text-white/45"}
+                      >
+                        {LABELS[c.key]}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
       <div className="pointer-events-auto">
         <AskBox asking={asking} onAsk={onAsk} />
       </div>

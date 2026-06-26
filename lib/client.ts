@@ -38,6 +38,13 @@ export interface SimResult {
   updatedAccess: Record<string, number>;
 }
 
+export interface RankedCandidate {
+  rank: number;
+  parcel: Parcel;
+  selected: boolean;
+  reason: string;
+}
+
 export function cellsOfDistrict(data: ReachData, district: string): Cell[] {
   return data.cells.filter((c) => c.district === district);
 }
@@ -130,6 +137,117 @@ export function rankGaps(data: ReachData, persona: PersonaKey): Gap[] {
   return data.districts
     .map((d) => targetForDistrict(data, d.district, persona))
     .sort((a, b) => b.severity - a.severity);
+}
+
+/**
+ * Pick the best gap for a guided demo: prefer education/healthcare with a
+ * meaningful simulated access lift and at least one buildable candidate.
+ */
+export function pickDemoGap(
+  data: ReachData,
+  persona: PersonaKey,
+  gaps?: Gap[]
+): Gap | null {
+  const list = gaps ?? rankGaps(data, persona);
+  if (list.length === 0) return null;
+
+  const preferred = list.filter(
+    (g) =>
+      (g.worst === "education" || g.worst === "healthcare") &&
+      g.access < 65 &&
+      g.unservedCells > 0
+  );
+  const pool = preferred.length > 0 ? preferred : list.slice(0, 8);
+
+  let best: Gap | null = null;
+  let bestLift = -1;
+
+  for (const g of pool) {
+    const base = baselinePoint(g);
+    const cands = candidateParcels(data, g.district, base);
+    if (cands.length === 0) continue;
+    const sim = simulatePlacement(
+      data,
+      g.district,
+      g.worst,
+      { lat: cands[0].lat, lng: cands[0].lng },
+      persona
+    );
+    const lift = sim.accessAfter - sim.accessBefore;
+    const score = lift * 100 + g.severity / 100;
+    if (score > bestLift) {
+      bestLift = score;
+      best = g;
+    }
+  }
+
+  return best ?? list[0];
+}
+
+/**
+ * Rank up to three candidate parcels for display. Uses simulatePlacement
+ * per candidate to estimate access lift — no changes to core math.
+ */
+export function rankCandidates(
+  data: ReachData,
+  gap: Gap,
+  candidates: Parcel[],
+  selectedId: string | null,
+  persona: PersonaKey
+): RankedCandidate[] {
+  if (candidates.length === 0) return [];
+
+  const scored = candidates
+    .map((parcel) => {
+      const sim = simulatePlacement(
+        data,
+        gap.district,
+        gap.worst,
+        { lat: parcel.lat, lng: parcel.lng },
+        persona
+      );
+      const accessLift = sim.accessAfter - sim.accessBefore;
+      const composite =
+        accessLift * 120 + parcel.infra * 0.35 + parcel.potential * 0.25;
+      return { parcel, accessLift, newReach: sim.newReach, composite };
+    })
+    .sort((a, b) => b.composite - a.composite);
+
+  let display = scored.slice(0, 3);
+  if (selectedId && !display.some((d) => d.parcel.id === selectedId)) {
+    const sel = scored.find((s) => s.parcel.id === selectedId);
+    if (sel) display = [...scored.slice(0, 2), sel];
+  }
+
+  const winner =
+    (selectedId
+      ? display.find((d) => d.parcel.id === selectedId)
+      : undefined) ?? display[0];
+
+  return display.map((item, i) => {
+    const selected =
+      selectedId !== null
+        ? item.parcel.id === selectedId
+        : i === 0;
+    let reason: string;
+    if (selected) {
+      reason = "Selected — best access impact + buildable";
+    } else if (item.parcel.infra < winner.parcel.infra - 8) {
+      reason = "Rejected — lower infrastructure";
+    } else if (item.accessLift < winner.accessLift - 0.3) {
+      reason = "Rejected — farther from underserved cells";
+    } else if (item.parcel.potential < winner.parcel.potential - 8) {
+      reason = "Rejected — lower development potential";
+    } else {
+      reason = "Rejected — lower combined score";
+    }
+    return {
+      rank: i + 1,
+      parcel: item.parcel,
+      selected: selected || (selectedId === null && i === 0),
+      reason,
+    };
+  });
 }
 
 /** District maximizing affectedPopulation + severity/50 for a category. */
