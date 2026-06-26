@@ -1,5 +1,6 @@
 // Browser-side analysis. Shares the pure engine math.
 import {
+  CATEGORIES,
   CATEGORY_THRESHOLDS,
   accessFromDistances,
   haversine,
@@ -139,6 +140,7 @@ export function rankGaps(data: ReachData, persona: PersonaKey): Gap[] {
     .sort((a, b) => b.severity - a.severity);
 }
 
+<<<<<<< Updated upstream
 /**
  * Pick the best gap for a guided demo: prefer education/healthcare with a
  * meaningful simulated access lift and at least one buildable candidate.
@@ -251,6 +253,28 @@ export function rankCandidates(
 }
 
 /** District maximizing affectedPopulation + severity/50 for a category. */
+=======
+/** Per-category access "deficit" (Σ weight × (100 − category score)) for a district. */
+function categoryDeficits(cells: Cell[]): Record<CategoryKey, number> {
+  const def = {} as Record<CategoryKey, number>;
+  for (const c of CATEGORIES) def[c.key] = 0;
+  for (const cell of cells) {
+    for (const c of CATEGORIES) {
+      const s = scoreFromDistance(cell.dist[c.key], CATEGORY_THRESHOLDS[c.key]);
+      def[c.key] += cell.weight * (100 - s);
+    }
+  }
+  return def;
+}
+
+/**
+ * Best district to build a new facility of `category`.
+ * Ranks by residents underserved for THAT service, amplified by how much that
+ * service stands out as the district's local gap — so different questions
+ * surface different, sensible neighborhoods (people present + that service
+ * specifically lacking) rather than always returning the all-around worst area.
+ */
+>>>>>>> Stashed changes
 export function worstDistrictForCategory(
   data: ReachData,
   persona: PersonaKey,
@@ -259,8 +283,14 @@ export function worstDistrictForCategory(
   let best = "";
   let bestScore = -Infinity;
   for (const d of data.districts) {
+    const cells = cellsOfDistrict(data, d.district);
+    if (cells.length === 0) continue;
     const gap = targetForDistrict(data, d.district, persona, category);
-    const score = gap.affectedPopulation + gap.severity / 50;
+    const def = categoryDeficits(cells);
+    const totalDef =
+      CATEGORIES.reduce((s, c) => s + def[c.key], 0) || 1;
+    const share = def[category] / totalDef; // 0..1 of the district's gap due to this category
+    const score = gap.affectedPopulation * (0.4 + share);
     if (score > bestScore) {
       bestScore = score;
       best = d.district;
